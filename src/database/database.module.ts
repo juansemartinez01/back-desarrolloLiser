@@ -11,13 +11,8 @@ import { SnakeNamingStrategy } from './naming.strategy';
       useFactory: (cfg: ConfigService) =>
         ({
           type: 'postgres',
-          host: cfg.get('db.host'),
-          port: cfg.get('db.port'),
-          database: cfg.get('db.name'),
-          username: cfg.get('db.user'),
-          password: cfg.get('db.pass'),
-          schema: cfg.get('db.schema'),
-          ssl: cfg.get('db.ssl') ? { rejectUnauthorized: false } : false,
+          url: cfg.get<string>('DATABASE_URL'),
+          ssl: cfg.get('DB_SSL') ? { rejectUnauthorized: false } : false,
           autoLoadEntities: true,
           synchronize: false, // usar migraciones SIEMPRE
           namingStrategy: new SnakeNamingStrategy(),
