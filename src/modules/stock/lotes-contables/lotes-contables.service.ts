@@ -2,6 +2,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
@@ -27,39 +28,60 @@ function resolverEstado(total: number, vendida: number): LoteContableEstado {
 
 @Injectable()
 export class LotesContablesService {
+  private readonly logger = new Logger(LotesContablesService.name);
   constructor(private readonly ds: DataSource) {}
 
   // LISTAR con filtros
   async listar(q: QueryLoteContableDto) {
-    const page = q.page ?? 1;
-    const limit = q.limit ?? 50;
-    const skip = (page - 1) * limit;
+    try {
+      const page = q.page ?? 1;
+      const limit = q.limit ?? 50;
+      const skip = (page - 1) * limit;
 
-    const repo = this.ds.getRepository(LoteContable);
-    const qb = repo.createQueryBuilder('lc');
+      const repo = this.ds.getRepository(LoteContable);
+      const qb = repo.createQueryBuilder('lc');
 
-    if (q.lote_id) {
-      qb.andWhere('lc.lote_id = :lid', { lid: q.lote_id });
+      if (q.lote_id) {
+        qb.andWhere('lc.lote_id = :lid', { lid: q.lote_id });
+      }
+      if (q.estado) {
+        qb.andWhere('lc.estado = :e', { e: q.estado });
+      }
+
+      qb.orderBy('lc.created_at', 'DESC').skip(skip).take(limit);
+
+      const [data, total] = await qb.getManyAndCount();
+      return { data, total, page, limit };
+    } catch (e: any) {
+      this.logger.error(
+        '[GET /stock/lotes-contables] error',
+        e?.stack || String(e),
+      );
+      throw new BadRequestException(
+        e?.detail || e?.message || 'Error listando lotes contables',
+      );
     }
-    if (q.estado) {
-      qb.andWhere('lc.estado = :e', { e: q.estado });
-    }
-
-    qb.orderBy('lc.created_at', 'DESC').skip(skip).take(limit);
-
-    const [data, total] = await qb.getManyAndCount();
-    return { data, total, page, limit };
   }
 
   // OBTENER por id
   async obtener(id: string) {
+    try{
     const lc = await this.ds
       .getRepository(LoteContable)
       .findOne({ where: { id } });
     if (!lc) throw new NotFoundException('Lote contable no encontrado');
     return lc;
+  }catch (e: any) {
+      this.logger.error(
+        `[GET /stock/lotes-contables/${id}] error`,
+        e?.stack || String(e),
+      );
+      throw new BadRequestException(
+        e?.detail || e?.message || 'Error obteniendo lote contable',
+      );
+    
   }
-
+  }
   // CREAR (uno por lote físico)
   async crear(dto: CreateLoteContableDto) {
     const loteRepo = this.ds.getRepository(StockLote);
