@@ -450,7 +450,7 @@ export class RemitosService {
   async crearRemitoIngresoRapido(dto: IngresoRapidoRemitoDto) {
     if (!dto.items?.length) {
       throw new BadRequestException(
-        'El ingreso rápido debe tener at least un ítem',
+        'El ingreso rápido debe tener al menos un ítem',
       );
     }
 
@@ -468,101 +468,153 @@ export class RemitosService {
       }
     }
 
-    const ahora = new Date();
-    const fechaStr = dto.fecha ?? ahora.toISOString();
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
 
-    // número de remito interno automático
-    const numeroAuto = `AUTO-${ahora.getFullYear()}${(ahora.getMonth() + 1)
-      .toString()
-      .padStart(2, '0')}${ahora.getDate().toString().padStart(2, '0')}-${ahora
-      .getHours()
-      .toString()
-      .padStart(2, '0')}${ahora.getMinutes().toString().padStart(2, '0')}${ahora
-      .getSeconds()
-      .toString()
-      .padStart(2, '0')}`;
+    try {
+      const ahora = new Date();
+      const fechaRemito = dto.fecha ? new Date(dto.fecha) : ahora;
 
-    // 1) Armamos un CreateRemitoDto “normal”
-    const full: CreateRemitoDto = {
-      fecha_remito: fechaStr,
-      numero_remito: numeroAuto,
-      proveedor_id: dto.proveedor_id,
-      proveedor_nombre: dto.proveedor_nombre ?? null,
-      observaciones: dto.observaciones ?? null,
-      items: dto.items.map((i) => ({
-        producto_id: i.producto_id,
-        unidad: null,
-        cantidad_total: i.cantidad_ingresada,
-        cantidad_tipo1: i.cantidad_ingresada,
-        cantidad_tipo2: 0,
-        empresa_factura: 'GLADIER',
-      })),
-    } as any;
+      // número de remito interno automático (solo para identificar)
+      const numeroAuto = `AUTO-${ahora.getFullYear()}${(ahora.getMonth() + 1)
+        .toString()
+        .padStart(2, '0')}${ahora.getDate().toString().padStart(2, '0')}-${ahora
+        .getHours()
+        .toString()
+        .padStart(
+          2,
+          '0',
+        )}${ahora.getMinutes().toString().padStart(2, '0')}${ahora
+        .getSeconds()
+        .toString()
+        .padStart(2, '0')}`;
 
-    // 2) Crear el remito con la lógica estándar
-    const creado = await this.crearRemito(full);
-
-    // 3) Buscar nombre del conductor para snapshot (opcional)
-    let conductorNombre: string | null = null;
-    if (dto.conductor_camion_id) {
-      const rows = await this.ds.query(
-        `SELECT nombre FROM public.stk_conductores_camion
-       WHERE id = $1 AND activo = true`,
-        [dto.conductor_camion_id],
-      );
-      if (rows.length) {
-        conductorNombre = rows[0].nombre;
+      // --- Buscar nombre del conductor para snapshot (opcional) ---
+      let conductorNombre: string | null = null;
+      if (dto.conductor_camion_id) {
+        const rows = await qr.query(
+          `SELECT nombre
+           FROM public.stk_conductores_camion
+          WHERE id = $1 AND activo = true`,
+          [dto.conductor_camion_id],
+        );
+        if (rows.length) {
+          conductorNombre = rows[0].nombre;
+        }
       }
-    }
 
-    // 4) Marcar cabecera como ingreso rápido + conductor
-    await this.ds.query(
-      `
-    UPDATE public.stk_remitos
-    SET es_ingreso_rapido = true,
-        conductor_camion_id = $2,
-        conductor_camion_nombre = $3
-    WHERE id = $1
-    `,
-      [creado.id, dto.conductor_camion_id ?? null, conductorNombre],
-    );
+      // --- Insertar cabecera de "pre-remito" (sin lotes) ---
+      const remRows = await qr.query(
+        `
+      INSERT INTO public.stk_remitos
+        (fecha_remito,
+         numero_remito,
+         proveedor_id,
+         proveedor_nombre,
+         observaciones,
+         es_ingreso_rapido,
+         pendiente,
+         conductor_camion_id,
+         conductor_camion_nombre)
+      VALUES ($1,$2,$3,$4,$5,true,true,$6,$7)
+      RETURNING id,
+                fecha_remito,
+                numero_remito,
+                proveedor_id,
+                proveedor_nombre,
+                observaciones,
+                es_ingreso_rapido,
+                pendiente,
+                conductor_camion_id,
+                conductor_camion_nombre
+      `,
+        [
+          fechaRemito,
+          numeroAuto,
+          dto.proveedor_id ?? null,
+          dto.proveedor_nombre ?? null,
+          dto.observaciones ?? null,
+          dto.conductor_camion_id ?? null,
+          conductorNombre,
+        ],
+      );
 
-    // 5) Actualizar ítems con info “sucia” del Operario A
-    if (Array.isArray(creado.items)) {
-      for (let idx = 0; idx < creado.items.length; idx++) {
-        const itemCreado = creado.items[idx] as any;
-        const src = dto.items[idx];
+      const remito = remRows[0];
+      const remitoId: string = remito.id;
 
-        await this.ds.query(
+      const itemsOut: any[] = [];
+
+      // --- Insertar ítems "sucios" del Operario A ---
+      for (const it of dto.items) {
+        const itemRows = await qr.query(
           `
-        UPDATE public.stk_remito_items
-        SET cantidad_remito   = $1,
-            nombre_capturado  = $2,
-            presentacion_txt  = $3,
-            tamano_txt        = $4,
-            nota_operario_a   = $5,
-            es_ingreso_rapido   = true,
-            pendiente = true
-        WHERE id = $6
+        INSERT INTO public.stk_remito_items
+          (remito_id,
+           producto_id,
+           unidad,
+           cantidad_total,
+           cantidad_tipo1,
+           cantidad_tipo2,
+           empresa_factura,
+           cantidad_remito,
+           nombre_capturado,
+           presentacion_txt,
+           tamano_txt,
+           nota_operario_a)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        RETURNING id,
+                  producto_id,
+                  unidad,
+                  cantidad_total,
+                  cantidad_tipo1,
+                  cantidad_tipo2,
+                  empresa_factura,
+                  cantidad_remito,
+                  nombre_capturado,
+                  presentacion_txt,
+                  tamano_txt,
+                  nota_operario_a
         `,
           [
-            toDecimal4(src.cantidad_declarada ?? 0),
-            src.nombre_producto ?? null,
-            src.presentacion ?? null,
-            src.tamano ?? null,
-            src.nota ?? null,
-            itemCreado.id,
+            remitoId,
+            it.producto_id,
+            null, // unidad real la define el Operario B
+            toDecimal4(it.cantidad_ingresada), // física real
+            toDecimal4(it.cantidad_ingresada), // todo tipo1 por defecto (solo contable)
+            toDecimal4(0),
+            'GLADIER', // o el default que uses
+            toDecimal4(it.cantidad_declarada ?? 0),
+            it.nombre_producto ?? null,
+            it.presentacion ?? null,
+            it.tamano ?? null,
+            it.nota ?? null,
           ],
         );
-      }
-    }
 
-    return {
-      ...creado,
-      es_ingreso_rapido: true,
-      conductor_camion_id: dto.conductor_camion_id,
-      conductor_camion_nombre: conductorNombre,
-    };
+        itemsOut.push(itemRows[0]);
+      }
+
+      await qr.commitTransaction();
+
+      // Devolvemos el "pre-remito" creado (sin lotes)
+      return {
+        ...remito,
+        id: remitoId,
+        items: itemsOut,
+      };
+    } catch (e: any) {
+      await qr.rollbackTransaction();
+      console.error(
+        '[POST /stock/remitos/ingreso-rapido] error:',
+        e?.detail || e?.message || e,
+      );
+      throw new BadRequestException(
+        e?.detail || e?.message || 'Error creando ingreso rápido',
+      );
+    } finally {
+      await qr.release();
+    }
   }
 
   // remitos.service.ts (mismo archivo donde ya tenés crearRemito, distribuirRemito, etc.)
@@ -732,9 +784,9 @@ export class RemitosService {
       qb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
     }
 
-     if (soloPend) {
-       qb.andWhere('r.pendiente = true');
-     }
+    if (soloPend) {
+      qb.andWhere('r.pendiente = true');
+    }
 
     qb.orderBy('r.fecha_remito', 'DESC').limit(limit).offset(skip);
 
