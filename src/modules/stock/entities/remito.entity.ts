@@ -27,6 +27,12 @@ export class Remito extends BaseEntity {
   @Column({ type: 'uuid', nullable: true })
   conductor_camion_id?: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  pendiente: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  es_ingreso_rapido: boolean;
+
   @Column({ type: 'varchar', length: 120, nullable: true })
   conductor_camion_nombre?: string | null;
 

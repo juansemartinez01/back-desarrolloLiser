@@ -540,7 +540,9 @@ export class RemitosService {
             nombre_capturado  = $2,
             presentacion_txt  = $3,
             tamano_txt        = $4,
-            nota_operario_a   = $5
+            nota_operario_a   = $5,
+            es_ingreso_rapido   = true,
+            pendiente = true
         WHERE id = $6
         `,
           [
@@ -667,6 +669,7 @@ export class RemitosService {
         }
       }
 
+      remito.pendiente = false;
       await qr.commitTransaction();
       return {
         ok: true,
@@ -729,19 +732,9 @@ export class RemitosService {
       qb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
     }
 
-    // solo pendientes: sin numero_remito o con al menos un item sin cantidad_remito
-    if (soloPend) {
-      qb.andWhere(
-        `(
-          r.numero_remito IS NULL
-          OR EXISTS (
-            SELECT 1 FROM public.stk_remito_items x
-            WHERE x.remito_id = r.id
-              AND (x.cantidad_remito IS NULL)
-          )
-        )`,
-      );
-    }
+     if (soloPend) {
+       qb.andWhere('r.pendiente = true');
+     }
 
     qb.orderBy('r.fecha_remito', 'DESC').limit(limit).offset(skip);
 
