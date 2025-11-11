@@ -1,4 +1,4 @@
-// unidades.service.ts
+// src/modules/stock/productos/unidades.service.ts
 import {
   BadRequestException,
   Injectable,
@@ -24,9 +24,10 @@ export class UnidadesService {
     const qb = this.ds.getRepository(Unidad).createQueryBuilder('u');
 
     if (q.search) {
-      qb.andWhere('(u.codigo ILIKE :s OR u.descripcion ILIKE :s)', {
-        s: `%${q.search}%`,
-      });
+      qb.andWhere(
+        '(u.codigo ILIKE :s OR u.nombre ILIKE :s OR u.abreviatura ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
     }
     if (q.activo !== undefined) {
       qb.andWhere('u.activo = :a', { a: q.activo });
@@ -54,7 +55,8 @@ export class UnidadesService {
 
     const u = repo.create({
       codigo: dto.codigo,
-      descripcion: dto.descripcion ?? null,
+      nombre: dto.nombre ?? null,
+      abreviatura: dto.abreviatura ?? null,
       activo: dto.activo ?? true,
     });
     return repo.save(u);
@@ -73,7 +75,8 @@ export class UnidadesService {
       u.codigo = dto.codigo;
     }
 
-    if (dto.descripcion !== undefined) u.descripcion = dto.descripcion ?? null;
+    if (dto.nombre !== undefined) u.nombre = dto.nombre ?? null;
+    if (dto.abreviatura !== undefined) u.abreviatura = dto.abreviatura ?? null;
     if (dto.activo !== undefined) u.activo = dto.activo;
 
     u.updated_at = new Date();
@@ -85,7 +88,6 @@ export class UnidadesService {
     const u = await repo.findOne({ where: { id } });
     if (!u) throw new NotFoundException('Unidad no encontrada');
 
-    // Baja lógica
     u.activo = false;
     u.updated_at = new Date();
     await repo.save(u);

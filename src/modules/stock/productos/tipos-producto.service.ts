@@ -1,4 +1,4 @@
-// tipos-producto.service.ts
+// src/modules/stock/productos/tipos-producto.service.ts
 import {
   BadRequestException,
   Injectable,

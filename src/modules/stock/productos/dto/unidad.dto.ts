@@ -1,4 +1,4 @@
-// dto/unidad.dto.ts
+// src/modules/stock/productos/dto/unidad.dto.ts
 import {
   IsBoolean,
   IsInt,
@@ -16,7 +16,12 @@ export class CreateUnidadDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  descripcion?: string;
+  nombre?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  abreviatura?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -32,7 +37,12 @@ export class UpdateUnidadDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  descripcion?: string;
+  nombre?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  abreviatura?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -42,7 +52,7 @@ export class UpdateUnidadDto {
 export class QueryUnidadDto {
   @IsOptional()
   @IsString()
-  search?: string; // busca en codigo / descripcion
+  search?: string; // busca en codigo / nombre / abreviatura
 
   @IsOptional()
   @IsBoolean()

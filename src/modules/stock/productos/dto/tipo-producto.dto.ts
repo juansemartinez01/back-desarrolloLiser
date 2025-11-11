@@ -1,4 +1,4 @@
-// dto/tipo-producto.dto.ts
+// src/modules/stock/productos/dto/tipo-producto.dto.ts
 import {
   IsBoolean,
   IsInt,

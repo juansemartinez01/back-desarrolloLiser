@@ -1,4 +1,4 @@
-// stk_unidades.entity.ts
+// src/modules/stock/productos/entities/unidad.entity.ts
 import { Column, Entity, PrimaryGeneratedColumn, Index } from 'typeorm';
 
 @Entity('stk_unidades')
@@ -12,7 +12,10 @@ export class Unidad {
   codigo: string; // ej: CAJA_18KG, KG, BANDEJA_1KG
 
   @Column({ type: 'varchar', length: 200, nullable: true })
-  descripcion?: string | null;
+  nombre?: string | null; // descripción legible
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  abreviatura?: string | null; // ej: "cj 18kg", "kg"
 
   @Column({ type: 'boolean', default: true })
   activo: boolean;

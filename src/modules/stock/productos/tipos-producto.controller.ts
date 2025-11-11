@@ -1,20 +1,20 @@
-// tipos-producto.controller.ts
+// src/modules/stock/productos/tipos-producto.controller.ts
 import {
   Body,
   Controller,
   Get,
   Param,
   ParseIntPipe,
-  Post,
   Patch,
+  Post,
   Delete,
   Query,
 } from '@nestjs/common';
 import { TiposProductoService } from './tipos-producto.service';
 import {
   CreateTipoProductoDto,
-  QueryTipoProductoDto,
   UpdateTipoProductoDto,
+  QueryTipoProductoDto,
 } from './dto/tipo-producto.dto';
 
 @Controller('stock/tipos-producto')
@@ -22,22 +22,22 @@ export class TiposProductoController {
   constructor(private readonly service: TiposProductoService) {}
 
   @Get()
-  async listar(@Query() q: QueryTipoProductoDto) {
+  listar(@Query() q: QueryTipoProductoDto) {
     return this.service.listar(q);
   }
 
   @Get(':id')
-  async obtener(@Param('id', ParseIntPipe) id: number) {
+  obtener(@Param('id', ParseIntPipe) id: number) {
     return this.service.obtener(id);
   }
 
   @Post()
-  async crear(@Body() dto: CreateTipoProductoDto) {
+  crear(@Body() dto: CreateTipoProductoDto) {
     return this.service.crear(dto);
   }
 
   @Patch(':id')
-  async actualizar(
+  actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateTipoProductoDto,
   ) {
@@ -45,7 +45,7 @@ export class TiposProductoController {
   }
 
   @Delete(':id')
-  async borrar(@Param('id', ParseIntPipe) id: number) {
+  borrar(@Param('id', ParseIntPipe) id: number) {
     return this.service.borrar(id);
   }
 }

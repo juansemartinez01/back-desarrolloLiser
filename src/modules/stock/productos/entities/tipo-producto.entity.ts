@@ -1,4 +1,4 @@
-// stk_tipos_producto.entity.ts
+// src/modules/stock/productos/entities/tipo-producto.entity.ts
 import { Column, Entity, PrimaryGeneratedColumn, Index } from 'typeorm';
 
 @Entity('stk_tipos_producto')
@@ -9,7 +9,7 @@ export class TipoProducto {
   id: number;
 
   @Column({ type: 'varchar', length: 80 })
-  nombre: string; // Ej: FRUTA, VERDURA, CONGELADO
+  nombre: string; // FRUTA, VERDURA, CONGELADO...
 
   @Column({ type: 'varchar', length: 200, nullable: true })
   descripcion?: string | null;
