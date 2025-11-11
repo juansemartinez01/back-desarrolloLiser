@@ -6,12 +6,14 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { CreateRemitoDto } from './dto/create-remito.dto';
 import { RemitosService } from './remitos.service';
 import { CreateDistribucionRemitoDto } from './dto/distribucion-remito.dto';
 import { IngresoRapidoRemitoDto } from './dto/ingreso-rapido-remito.dto';
 import { CompletarRemitoContableDto } from './dto/completar-remito-contable.dto';
+import { QueryRemitosIngresoRapidoDto } from './dto/query-remitos-ingreso-rapido.dto';
 
 @Controller('stock/remitos')
 export class RemitosController {
@@ -28,6 +30,11 @@ export class RemitosController {
     return this.service.crearRemitoIngresoRapido(dto);
   }
 
+  @Get('ingreso-rapido')
+  async listarIngresoRapido(@Query() q: QueryRemitosIngresoRapidoDto) {
+    return this.service.listarRemitosIngresoRapido(q);
+  }
+  
   @Get(':id')
   async detalle(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.obtenerDetalle(id);

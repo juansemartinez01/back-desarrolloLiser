@@ -17,6 +17,7 @@ import { MovimientoStock } from './entities/movimiento-stock.entity';
 import { MovimientoTipo } from './enums/movimiento-tipo.enum';
 import { IngresoRapidoRemitoDto } from './dto/ingreso-rapido-remito.dto';
 import { CompletarRemitoContableDto } from './dto/completar-remito-contable.dto';
+import { QueryRemitosIngresoRapidoDto } from './dto/query-remitos-ingreso-rapido.dto';
 
 function toDecimal4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -685,5 +686,93 @@ export class RemitosService {
     } finally {
       await qr.release();
     }
+  }
+
+  async listarRemitosIngresoRapido(q: QueryRemitosIngresoRapidoDto) {
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 50;
+    const skip = (page - 1) * limit;
+
+    const desde = q.desde ? new Date(q.desde) : undefined;
+    const hasta = q.hasta ? new Date(q.hasta) : undefined;
+    const soloPend =
+      q.solo_pendientes === undefined || q.solo_pendientes === 'true';
+
+    const qb = this.ds
+      .createQueryBuilder()
+      .from('stk_remitos', 'r')
+      .innerJoin('stk_remito_items', 'ri', 'ri.remito_id = r.id')
+      .select([
+        'r.id              AS id',
+        'r.fecha_remito    AS fecha_remito',
+        'r.numero_remito   AS numero_remito',
+        'r.proveedor_id    AS proveedor_id',
+        'r.proveedor_nombre AS proveedor_nombre',
+        'r.es_ingreso_rapido AS es_ingreso_rapido',
+      ])
+      .addSelect('COUNT(ri.id)', 'items_count')
+      .addSelect('SUM(ri.cantidad_total)', 'cantidad_ingresada_total')
+      .addSelect(
+        'SUM(COALESCE(ri.cantidad_remito, 0))',
+        'cantidad_declarada_total',
+      )
+      .where('r.es_ingreso_rapido = true')
+      .groupBy('r.id');
+
+    if (desde) {
+      qb.andWhere('r.fecha_remito >= :desde', { desde });
+    }
+    if (hasta) {
+      qb.andWhere('r.fecha_remito < :hasta', { hasta });
+    }
+    if (q.proveedor_id) {
+      qb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
+    }
+
+    // solo pendientes: sin numero_remito o con al menos un item sin cantidad_remito
+    if (soloPend) {
+      qb.andWhere(
+        `(
+          r.numero_remito IS NULL
+          OR EXISTS (
+            SELECT 1 FROM public.stk_remito_items x
+            WHERE x.remito_id = r.id
+              AND (x.cantidad_remito IS NULL)
+          )
+        )`,
+      );
+    }
+
+    qb.orderBy('r.fecha_remito', 'DESC').limit(limit).offset(skip);
+
+    const data = await qb.getRawMany();
+
+    const countQb = this.ds
+      .createQueryBuilder()
+      .from('stk_remitos', 'r')
+      .innerJoin('stk_remito_items', 'ri', 'ri.remito_id = r.id')
+      .select('COUNT(DISTINCT r.id)', 'c')
+      .where('r.es_ingreso_rapido = true');
+
+    if (desde) countQb.andWhere('r.fecha_remito >= :desde', { desde });
+    if (hasta) countQb.andWhere('r.fecha_remito < :hasta', { hasta });
+    if (q.proveedor_id)
+      countQb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
+    if (soloPend) {
+      countQb.andWhere(
+        `(
+          r.numero_remito IS NULL
+          OR EXISTS (
+            SELECT 1 FROM public.stk_remito_items x
+            WHERE x.remito_id = r.id
+              AND (x.cantidad_remito IS NULL)
+          )
+        )`,
+      );
+    }
+
+    const total = await countQb.getRawOne().then((r: any) => Number(r?.c) || 0);
+
+    return { data, total, page, limit };
   }
 }
