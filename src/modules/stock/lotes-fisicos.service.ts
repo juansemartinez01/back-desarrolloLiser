@@ -188,4 +188,36 @@ export class LotesFisicosService {
       en_almacenes,
     };
   }
+
+  async listarFisicosSinContable() {
+    const qb = this.ds
+      .getRepository(StockLote)
+      .createQueryBuilder('l')
+      // NO debe tener lote contable
+      .leftJoin('stk_lotes_contables', 'lc', 'lc.lote_id = l.id')
+      .innerJoin(Producto, 'p', 'p.id = l.producto_id')
+      .leftJoin(Unidad, 'u', 'u.id = p.unidad_id')
+      .leftJoin(TipoProducto, 'tp', 'tp.id = p.tipo_producto_id')
+      .where('lc.lote_id IS NULL')
+      .orderBy('l.fecha_remito', 'ASC')
+      .addOrderBy('l.created_at', 'ASC');
+
+    const rows = await qb
+      .select([
+        'l.id AS lote_id',
+        'l.producto_id AS producto_id',
+        'l.fecha_remito AS fecha_remito',
+        'l.cantidad_inicial AS cantidad_inicial',
+        'l.cantidad_disponible AS cantidad_disponible',
+        'l.bloqueado AS bloqueado',
+        'p.nombre AS producto_nombre',
+        'p.codigo_comercial AS codigo_comercial',
+        'u.codigo AS unidad_codigo',
+        'u.nombre AS unidad_nombre',
+        'tp.nombre AS tipo_producto_nombre',
+      ])
+      .getRawMany();
+
+    return { data: rows };
+  }
 }

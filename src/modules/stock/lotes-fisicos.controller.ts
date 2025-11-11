@@ -15,4 +15,9 @@ export class LotesFisicosController {
   async detalle(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.detalle(id);
   }
+
+  @Get('fisicos/sin-contable')
+  async listarFisicosSinContable() {
+    return this.service.listarFisicosSinContable();
+  }
 }
