@@ -30,12 +30,12 @@ export class RemitosController {
     return this.service.crearRemitoIngresoRapido(dto);
   }
 
-  @Get('ingreso-rapido')
+  @Get('obtener-ingreso-rapido')
   async listarIngresoRapido(@Query() q: QueryRemitosIngresoRapidoDto) {
     return this.service.listarRemitosIngresoRapido(q);
   }
   
-  @Get(':id')
+  @Get('obtener/:id')
   async detalle(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.obtenerDetalle(id);
   }
