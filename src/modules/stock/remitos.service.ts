@@ -617,8 +617,6 @@ export class RemitosService {
     }
   }
 
-  // remitos.service.ts (mismo archivo donde ya tenés crearRemito, distribuirRemito, etc.)
-
   async completarRemitoContable(
     remitoId: string,
     dto: CompletarRemitoContableDto,
@@ -655,10 +653,10 @@ export class RemitosService {
 
       await remRepo.save(remito);
 
-      // Vamos guardando los ítems que tocamos (para luego crear lotes)
+      // Ítems tocados (para luego crear lotes)
       const itemsActualizados: RemitoItem[] = [];
 
-      // --- Actualizar ítems contables ---
+      // --- Actualizar ítems contables / producto / unidad ---
       if (dto.items?.length) {
         for (const it of dto.items) {
           const item = await itemRepo.findOne({
@@ -671,17 +669,35 @@ export class RemitosService {
             );
           }
 
-          // (Opcional) permitir corregir producto / unidad desde el DTO
           const itAny = it as any;
+
+          // ¿Quieren corregir el producto_id que dejó el Operario A?
           if (itAny.producto_id != null) {
-            item.producto_id = Number(itAny.producto_id);
+            const nuevoProdId = Number(itAny.producto_id);
+
+            if (nuevoProdId !== item.producto_id) {
+              // Si ya hay lotes, no dejamos cambiar el producto
+              const lotesExist = await qr.query(
+                `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
+                [item.id],
+              );
+              if (lotesExist.length) {
+                throw new BadRequestException(
+                  `No se puede cambiar el producto del ítem ${item.id} porque ya tiene lotes generados`,
+                );
+              }
+
+              item.producto_id = nuevoProdId;
+            }
           }
+
+          // Unidad: el Operario B puede setear la unidad formal
           if (itAny.unidad !== undefined) {
             item.unidad = itAny.unidad;
           }
 
-          // Punto de partida: lo que ya tiene
-          const total = Number(item.cantidad_total); // físico
+          // Punto de partida: lo que ya tiene (cant. física total)
+          const total = Number(item.cantidad_total);
           let t1 = Number(item.cantidad_tipo1 ?? 0);
           let t2 = Number(item.cantidad_tipo2 ?? 0);
 
@@ -727,25 +743,23 @@ export class RemitosService {
         }
       }
 
-      // --- Crear lotes si es un pre-remito de ingreso rápido todavía pendiente ---
-      if (remito.es_ingreso_rapido && remito.pendiente) {
-        // Si no vino ningún item en el PATCH, cargamos todos para crear lotes igual
-        let itemsBase: RemitoItem[];
-        if (itemsActualizados.length) {
-          itemsBase = itemsActualizados;
-        } else {
-          itemsBase = await itemRepo.find({ where: { remito_id: remitoId } });
-        }
-
+      // --- Crear lotes si es un ingreso rápido pendiente ---
+      if ((remito as any).es_ingreso_rapido && (remito as any).pendiente) {
         const fechaLote = remito.fecha_remito;
 
+        // Si no vino ningún item en el PATCH, tomamos todos
+        const itemsBase: RemitoItem[] =
+          itemsActualizados.length > 0
+            ? itemsActualizados
+            : await itemRepo.find({ where: { remito_id: remitoId } });
+
         for (const item of itemsBase) {
-          // ¿Ya existen lotes para este ítem? Si hay, no hacemos nada (evitamos duplicar).
-          const yaTieneLotes = await qr.query(
+          // Si ya tenía lotes, no hacemos nada (por seguridad)
+          const lotesExist = await qr.query(
             `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
             [item.id],
           );
-          if (yaTieneLotes.length) continue;
+          if (lotesExist.length) continue;
 
           const t1 = Number(item.cantidad_tipo1 || 0);
           const t2 = Number(item.cantidad_tipo2 || 0);
@@ -775,8 +789,8 @@ export class RemitosService {
           }
         }
 
-        // Marcamos el remito como ya NO pendiente (ya tiene lotes)
-        remito.pendiente = false;
+        // Marcamos el remito como ya NO pendiente
+        (remito as any).pendiente = false;
         await remRepo.save(remito);
       }
 
