@@ -30,6 +30,10 @@ import { CatalogosController } from './catalogos/catalogos.controller';
 import { CatalogosService } from './catalogos/catalogos.service';
 import { ProductosModule } from './productos/productos.module';
 import { LoteContable } from './entities/lote-contable.entity';
+import { UnidadesController } from './productos/unidades.controller';
+import { TiposProductoController } from './productos/tipos-producto.controller';
+import { UnidadesService } from './productos/unidades.service';
+import { TiposProductoService } from './productos/tipos-producto.service';
 
 @Module({
   imports: [
@@ -58,6 +62,8 @@ import { LoteContable } from './entities/lote-contable.entity';
     FraccionamientosController,
     ConteosController,
     CatalogosController,
+    UnidadesController,
+    TiposProductoController
   ],
   providers: [
     StockService,
@@ -70,6 +76,8 @@ import { LoteContable } from './entities/lote-contable.entity';
     FraccionamientosService,
     ConteosService,
     CatalogosService,
+    UnidadesService,
+    TiposProductoService
   ],
   exports: [RemitosService, StockQueriesService, VentasService, EstadosService],
 })
