@@ -17,14 +17,14 @@ import { CompletarRemitoContableDto } from './dto/completar-remito-contable.dto'
 export class RemitosController {
   constructor(private readonly service: RemitosService) {}
 
-  @Post('ingreso-rapido')
-  async ingresoRapido(@Body() dto: IngresoRapidoRemitoDto) {
-    return this.service.crearRemitoIngresoRapido(dto);
-  }
-
   @Post()
   async crear(@Body() dto: CreateRemitoDto) {
     return this.service.crearRemito(dto);
+  }
+
+  @Post('ingreso-rapido')
+  async ingresoRapido(@Body() dto: IngresoRapidoRemitoDto) {
+    return this.service.crearRemitoIngresoRapido(dto);
   }
 
   @Get(':id')
