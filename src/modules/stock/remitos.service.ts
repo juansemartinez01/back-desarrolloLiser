@@ -16,6 +16,7 @@ import { LoteAlmacen } from './entities/lote-almacen.entity';
 import { MovimientoStock } from './entities/movimiento-stock.entity';
 import { MovimientoTipo } from './enums/movimiento-tipo.enum';
 import { IngresoRapidoRemitoDto } from './dto/ingreso-rapido-remito.dto';
+import { CompletarRemitoContableDto } from './dto/completar-remito-contable.dto';
 
 function toDecimal4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -446,44 +447,229 @@ export class RemitosService {
   }
 
   async crearRemitoIngresoRapido(dto: IngresoRapidoRemitoDto) {
-    if (!dto.items?.length) {
+  if (!dto.items?.length) {
+    throw new BadRequestException(
+      'El ingreso rápido debe tener at least un ítem',
+    );
+  }
+
+  // Validar cantidades
+  for (const it of dto.items) {
+    if (!(it.cantidad_ingresada > 0)) {
       throw new BadRequestException(
-        'El ingreso rápido debe tener al menos un ítem',
+        `Cantidad ingresada debe ser > 0 para producto_id=${it.producto_id}`,
       );
     }
+    if (it.cantidad_declarada < 0) {
+      throw new BadRequestException(
+        `Cantidad declarada no puede ser negativa (producto_id=${it.producto_id})`,
+      );
+    }
+  }
 
-    const ahora = new Date();
-    const fechaStr = dto.fecha ?? ahora.toISOString();
+  const ahora = new Date();
+  const fechaStr = dto.fecha ?? ahora.toISOString();
 
-    // número de remito interno automático
-    const numeroAuto = `AUTO-${ahora.getFullYear()}${(ahora.getMonth() + 1)
-      .toString()
-      .padStart(2, '0')}${ahora.getDate().toString().padStart(2, '0')}-${ahora
-      .getHours()
-      .toString()
-      .padStart(2, '0')}${ahora.getMinutes().toString().padStart(2, '0')}${ahora
-      .getSeconds()
-      .toString()
-      .padStart(2, '0')}`;
+  // número de remito interno automático
+  const numeroAuto = `AUTO-${ahora.getFullYear()}${(ahora.getMonth() + 1)
+    .toString()
+    .padStart(2, '0')}${ahora.getDate().toString().padStart(2, '0')}-${ahora
+    .getHours()
+    .toString()
+    .padStart(2, '0')}${ahora.getMinutes().toString().padStart(2, '0')}${ahora
+    .getSeconds()
+    .toString()
+    .padStart(2, '0')}`;
 
-    // armamos un CreateRemitoDto “normal” poniendo todo en tipo1
-    const full: CreateRemitoDto = {
-      fecha_remito: fechaStr,
-      numero_remito: numeroAuto,
-      proveedor_id: null,
-      proveedor_nombre: null,
-      observaciones: dto.observaciones ?? null,
-      items: dto.items.map((i) => ({
-        producto_id: i.producto_id,
-        unidad: i.unidad ?? 'UN',
-        cantidad_total: i.cantidad,
-        cantidad_tipo1: i.cantidad, // TODO: después el otro operario puede refinar
-        cantidad_tipo2: 0,
-        empresa_factura: 'GLADIER', // o lo que uses por defecto
-      })),
-    } as any;
+  // 1) Armamos un CreateRemitoDto “normal”
+  const full: CreateRemitoDto = {
+    fecha_remito: fechaStr,
+    numero_remito: numeroAuto,
+    proveedor_id: dto.proveedor_id ?? null,
+    proveedor_nombre: dto.proveedor_nombre ?? null,
+    observaciones: dto.observaciones ?? null,
+    items: dto.items.map((i) => ({
+      producto_id: i.producto_id,
+      unidad: null, // la va a definir el Operario B a partir de presentacion_txt
+      cantidad_total: i.cantidad_ingresada,       // física real
+      cantidad_tipo1: i.cantidad_ingresada,      // por defecto todo tipo1
+      cantidad_tipo2: 0,
+      empresa_factura: 'GLADIER', // o el default que uses
+      // los campos “crudos” van a tabla después vía UPDATE
+    })),
+  } as any;
 
-    // reutilizamos TODA la lógica actual de crearRemito (lotes, validaciones, etc.)
-    return this.crearRemito(full);
+  // 2) Crear el remito con la lógica estándar (lotes, etc.)
+  const creado = await this.crearRemito(full);
+
+  // 3) Marcar cabecera como ingreso rápido + conductor_camion
+  await this.ds.query(
+    `
+    UPDATE public.stk_remitos
+    SET es_ingreso_rapido = true,
+        conductor_camion = $2
+    WHERE id = $1
+    `,
+    [creado.id, dto.conductor_camion ?? null],
+  );
+
+  // 4) Actualizar ítems con la info “sucia” del Operario A
+  //    (asumimos que crearRemito devuelve items en el mismo orden que fueron enviados)
+  if (Array.isArray(creado.items)) {
+    for (let idx = 0; idx < creado.items.length; idx++) {
+      const itemCreado = creado.items[idx] as any;
+      const src = dto.items[idx];
+
+      await this.ds.query(
+        `
+        UPDATE public.stk_remito_items
+        SET cantidad_remito   = $1,
+            nombre_capturado  = $2,
+            presentacion_txt  = $3,
+            tamano_txt        = $4,
+            nota_operario_a   = $5
+        WHERE id = $6
+        `,
+        [
+          toDecimal4(src.cantidad_declarada ?? 0),
+          src.nombre_producto ?? null,
+          src.presentacion ?? null,
+          src.tamano ?? null,
+          src.nota ?? null,
+          itemCreado.id,
+        ],
+      );
+    }
+  }
+
+  return {
+    ...creado,
+    es_ingreso_rapido: true,
+  };
+}
+
+  // remitos.service.ts (mismo archivo donde ya tenés crearRemito, distribuirRemito, etc.)
+
+  /**
+   * Completar / ajustar datos contables del remito:
+   * - proveedor, numero_remito, observaciones
+   * - cantidad_tipo1 / cantidad_tipo2 / cantidad_remito por ítem
+   *
+   * NO toca lotes, NO toca stock_actual, NO importa si ya hubo ventas o transferencias.
+   */
+  async completarRemitoContable(
+    remitoId: string,
+    dto: CompletarRemitoContableDto,
+  ) {
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      const remRepo = qr.manager.getRepository(Remito);
+      const itemRepo = qr.manager.getRepository(RemitoItem);
+
+      const remito = await remRepo.findOne({ where: { id: remitoId } });
+      if (!remito) {
+        throw new NotFoundException('Remito no encontrado');
+      }
+
+      // --- Actualizar cabecera (proveedor, número, obs) ---
+      if (dto.numero_remito !== undefined && dto.numero_remito !== null) {
+        remito.numero_remito = dto.numero_remito;
+      }
+      if (dto.proveedor_id !== undefined) {
+        remito.proveedor_id =
+          dto.proveedor_id === null ? null : dto.proveedor_id;
+      }
+      if (dto.proveedor_nombre !== undefined) {
+        remito.proveedor_nombre =
+          dto.proveedor_nombre === null ? null : dto.proveedor_nombre;
+      }
+      if (dto.observaciones !== undefined) {
+        remito.observaciones =
+          dto.observaciones === null ? null : dto.observaciones;
+      }
+      await remRepo.save(remito);
+
+      // --- Actualizar ítems contables ---
+      if (dto.items?.length) {
+        for (const it of dto.items) {
+          const item = await itemRepo.findOne({
+            where: { id: it.remito_item_id, remito_id: remitoId },
+          });
+
+          if (!item) {
+            throw new BadRequestException(
+              `El ítem ${it.remito_item_id} no pertenece al remito`,
+            );
+          }
+
+          const total = Number(item.cantidad_total); // físico
+
+          // Punto de partida: lo que ya tiene
+          let t1 = Number(item.cantidad_tipo1 ?? 0);
+          let t2 = Number(item.cantidad_tipo2 ?? 0);
+
+          // Si viene explícito en el DTO, pisamos
+          if (it.cantidad_tipo1 != null) {
+            t1 = Number(it.cantidad_tipo1);
+          }
+          if (it.cantidad_tipo2 != null) {
+            t2 = Number(it.cantidad_tipo2);
+          }
+
+          // Atajos: si viene solo uno, calculamos el otro para que sumen total
+          if (it.cantidad_tipo1 != null && it.cantidad_tipo2 == null) {
+            t1 = Number(it.cantidad_tipo1);
+            t2 = total - t1;
+          } else if (it.cantidad_tipo2 != null && it.cantidad_tipo1 == null) {
+            t2 = Number(it.cantidad_tipo2);
+            t1 = total - t2;
+          }
+
+          // VALIDACIÓN: tipo1 + tipo2 debe igualar cantidad_total (física)
+          const suma = Number(toDecimal4(t1 + t2));
+          const totalNorm = Number(toDecimal4(total));
+          if (suma !== totalNorm) {
+            throw new BadRequestException(
+              `Para el ítem ${item.id}, tipo1 (${t1}) + tipo2 (${t2}) debe igualar cantidad_total (${total})`,
+            );
+          }
+
+          item.cantidad_tipo1 = toDecimal4(t1);
+          item.cantidad_tipo2 = toDecimal4(t2);
+
+          if (it.cantidad_remito != null) {
+            item.cantidad_remito = toDecimal4(it.cantidad_remito);
+          }
+
+          if (it.empresa_factura != null) {
+            item.empresa_factura = it.empresa_factura as any;
+          }
+
+          await itemRepo.save(item);
+        }
+      }
+
+      await qr.commitTransaction();
+      return {
+        ok: true,
+        remito_id: remitoId,
+      };
+    } catch (e) {
+      await qr.rollbackTransaction();
+      console.error(
+        '[PATCH /stock/remitos/:id/contable] error:',
+        e?.detail || e?.message || e,
+      );
+      throw new BadRequestException(
+        e?.detail ||
+          e?.message ||
+          'Error completando datos contables del remito',
+      );
+    } finally {
+      await qr.release();
+    }
   }
 }

@@ -22,6 +22,12 @@ export class Remito extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   observaciones?: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  es_ingreso_rapido: boolean;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  conductor_camion?: string | null;
+
   @OneToMany(() => RemitoItem, (ri) => ri.remito)
   items: RemitoItem[];
 }
