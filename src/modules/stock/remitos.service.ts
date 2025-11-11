@@ -447,81 +447,93 @@ export class RemitosService {
   }
 
   async crearRemitoIngresoRapido(dto: IngresoRapidoRemitoDto) {
-  if (!dto.items?.length) {
-    throw new BadRequestException(
-      'El ingreso rápido debe tener at least un ítem',
-    );
-  }
-
-  // Validar cantidades
-  for (const it of dto.items) {
-    if (!(it.cantidad_ingresada > 0)) {
+    if (!dto.items?.length) {
       throw new BadRequestException(
-        `Cantidad ingresada debe ser > 0 para producto_id=${it.producto_id}`,
+        'El ingreso rápido debe tener at least un ítem',
       );
     }
-    if (it.cantidad_declarada < 0) {
-      throw new BadRequestException(
-        `Cantidad declarada no puede ser negativa (producto_id=${it.producto_id})`,
-      );
+
+    // Validar cantidades
+    for (const it of dto.items) {
+      if (!(it.cantidad_ingresada > 0)) {
+        throw new BadRequestException(
+          `Cantidad ingresada debe ser > 0 para producto_id=${it.producto_id}`,
+        );
+      }
+      if (it.cantidad_declarada < 0) {
+        throw new BadRequestException(
+          `Cantidad declarada no puede ser negativa (producto_id=${it.producto_id})`,
+        );
+      }
     }
-  }
 
-  const ahora = new Date();
-  const fechaStr = dto.fecha ?? ahora.toISOString();
+    const ahora = new Date();
+    const fechaStr = dto.fecha ?? ahora.toISOString();
 
-  // número de remito interno automático
-  const numeroAuto = `AUTO-${ahora.getFullYear()}${(ahora.getMonth() + 1)
-    .toString()
-    .padStart(2, '0')}${ahora.getDate().toString().padStart(2, '0')}-${ahora
-    .getHours()
-    .toString()
-    .padStart(2, '0')}${ahora.getMinutes().toString().padStart(2, '0')}${ahora
-    .getSeconds()
-    .toString()
-    .padStart(2, '0')}`;
+    // número de remito interno automático
+    const numeroAuto = `AUTO-${ahora.getFullYear()}${(ahora.getMonth() + 1)
+      .toString()
+      .padStart(2, '0')}${ahora.getDate().toString().padStart(2, '0')}-${ahora
+      .getHours()
+      .toString()
+      .padStart(2, '0')}${ahora.getMinutes().toString().padStart(2, '0')}${ahora
+      .getSeconds()
+      .toString()
+      .padStart(2, '0')}`;
 
-  // 1) Armamos un CreateRemitoDto “normal”
-  const full: CreateRemitoDto = {
-    fecha_remito: fechaStr,
-    numero_remito: numeroAuto,
-    proveedor_id: dto.proveedor_id ?? null,
-    proveedor_nombre: dto.proveedor_nombre ?? null,
-    observaciones: dto.observaciones ?? null,
-    items: dto.items.map((i) => ({
-      producto_id: i.producto_id,
-      unidad: null, // la va a definir el Operario B a partir de presentacion_txt
-      cantidad_total: i.cantidad_ingresada,       // física real
-      cantidad_tipo1: i.cantidad_ingresada,      // por defecto todo tipo1
-      cantidad_tipo2: 0,
-      empresa_factura: 'GLADIER', // o el default que uses
-      // los campos “crudos” van a tabla después vía UPDATE
-    })),
-  } as any;
+    // 1) Armamos un CreateRemitoDto “normal”
+    const full: CreateRemitoDto = {
+      fecha_remito: fechaStr,
+      numero_remito: numeroAuto,
+      proveedor_id: dto.proveedor_id,
+      proveedor_nombre: dto.proveedor_nombre ?? null,
+      observaciones: dto.observaciones ?? null,
+      items: dto.items.map((i) => ({
+        producto_id: i.producto_id,
+        unidad: null,
+        cantidad_total: i.cantidad_ingresada,
+        cantidad_tipo1: i.cantidad_ingresada,
+        cantidad_tipo2: 0,
+        empresa_factura: 'GLADIER',
+      })),
+    } as any;
 
-  // 2) Crear el remito con la lógica estándar (lotes, etc.)
-  const creado = await this.crearRemito(full);
+    // 2) Crear el remito con la lógica estándar
+    const creado = await this.crearRemito(full);
 
-  // 3) Marcar cabecera como ingreso rápido + conductor_camion
-  await this.ds.query(
-    `
+    // 3) Buscar nombre del conductor para snapshot (opcional)
+    let conductorNombre: string | null = null;
+    if (dto.conductor_camion_id) {
+      const rows = await this.ds.query(
+        `SELECT nombre FROM public.stk_conductores_camion
+       WHERE id = $1 AND activo = true`,
+        [dto.conductor_camion_id],
+      );
+      if (rows.length) {
+        conductorNombre = rows[0].nombre;
+      }
+    }
+
+    // 4) Marcar cabecera como ingreso rápido + conductor
+    await this.ds.query(
+      `
     UPDATE public.stk_remitos
     SET es_ingreso_rapido = true,
-        conductor_camion = $2
+        conductor_camion_id = $2,
+        conductor_camion_nombre = $3
     WHERE id = $1
     `,
-    [creado.id, dto.conductor_camion ?? null],
-  );
+      [creado.id, dto.conductor_camion_id ?? null, conductorNombre],
+    );
 
-  // 4) Actualizar ítems con la info “sucia” del Operario A
-  //    (asumimos que crearRemito devuelve items en el mismo orden que fueron enviados)
-  if (Array.isArray(creado.items)) {
-    for (let idx = 0; idx < creado.items.length; idx++) {
-      const itemCreado = creado.items[idx] as any;
-      const src = dto.items[idx];
+    // 5) Actualizar ítems con info “sucia” del Operario A
+    if (Array.isArray(creado.items)) {
+      for (let idx = 0; idx < creado.items.length; idx++) {
+        const itemCreado = creado.items[idx] as any;
+        const src = dto.items[idx];
 
-      await this.ds.query(
-        `
+        await this.ds.query(
+          `
         UPDATE public.stk_remito_items
         SET cantidad_remito   = $1,
             nombre_capturado  = $2,
@@ -530,23 +542,25 @@ export class RemitosService {
             nota_operario_a   = $5
         WHERE id = $6
         `,
-        [
-          toDecimal4(src.cantidad_declarada ?? 0),
-          src.nombre_producto ?? null,
-          src.presentacion ?? null,
-          src.tamano ?? null,
-          src.nota ?? null,
-          itemCreado.id,
-        ],
-      );
+          [
+            toDecimal4(src.cantidad_declarada ?? 0),
+            src.nombre_producto ?? null,
+            src.presentacion ?? null,
+            src.tamano ?? null,
+            src.nota ?? null,
+            itemCreado.id,
+          ],
+        );
+      }
     }
-  }
 
-  return {
-    ...creado,
-    es_ingreso_rapido: true,
-  };
-}
+    return {
+      ...creado,
+      es_ingreso_rapido: true,
+      conductor_camion_id: dto.conductor_camion_id,
+      conductor_camion_nombre: conductorNombre,
+    };
+  }
 
   // remitos.service.ts (mismo archivo donde ya tenés crearRemito, distribuirRemito, etc.)
 

@@ -9,31 +9,32 @@ import {
   IsString,
   IsDateString,
   ValidateNested,
+  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class IngresoRapidoRemitoItemDto {
   @IsInt()
-  producto_id: number; // A elige algo aproximado, B lo puede corregir
+  producto_id: number;
 
   @IsString()
-  nombre_producto: string; // texto que escribe el Operario A
+  nombre_producto: string;
 
   @IsNumber()
   @Min(0.0001)
-  cantidad_ingresada: number; // cantidad física real
+  cantidad_ingresada: number;
 
   @IsNumber()
   @Min(0)
-  cantidad_declarada: number; // lo que dice el papel
+  cantidad_declarada: number;
 
   @IsOptional()
   @IsString()
-  presentacion?: string; // texto libre
+  presentacion?: string;
 
   @IsOptional()
   @IsString()
-  tamano?: string; // texto libre
+  tamano?: string;
 
   @IsOptional()
   @IsString()
@@ -43,23 +44,23 @@ export class IngresoRapidoRemitoItemDto {
 export class IngresoRapidoRemitoDto {
   @IsOptional()
   @IsDateString()
-  fecha?: string; // si no viene, usamos now()
+  fecha?: string;
 
-  @IsOptional()
+  // 👇 ahora obligatorio: se elige de un selector
   @IsInt()
-  proveedor_id?: number;
+  proveedor_id: number;
 
   @IsOptional()
   @IsString()
-  proveedor_nombre?: string;
+  proveedor_nombre?: string; // opcional: podés no mandarlo
+
+  // 👇 referencia a la nueva tabla de conductores
+  @IsUUID()
+  conductor_camion_id: string;
 
   @IsOptional()
   @IsString()
-  conductor_camion?: string;
-
-  @IsOptional()
-  @IsString()
-  observaciones?: string; // observación general del proveedor / remito
+  observaciones?: string;
 
   @IsArray()
   @ArrayNotEmpty()
