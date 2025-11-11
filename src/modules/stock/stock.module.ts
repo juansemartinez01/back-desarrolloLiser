@@ -26,6 +26,8 @@ import { FraccionamientosController } from './fraccionamientos.controller';
 import { FraccionamientosService } from './fraccionamientos.service';
 import { ConteosController } from './conteos.controller';
 import { ConteosService } from './conteos.service';
+import { CatalogosController } from './catalogos/catalogos.controller';
+import { CatalogosService } from './catalogos/catalogos.service';
 
 @Module({
   imports: [
@@ -50,6 +52,7 @@ import { ConteosService } from './conteos.service';
     TransferenciasController,
     FraccionamientosController,
     ConteosController,
+    CatalogosController,
   ],
   providers: [
     StockService,
@@ -61,6 +64,7 @@ import { ConteosService } from './conteos.service';
     TransferenciasService,
     FraccionamientosService,
     ConteosService,
+    CatalogosService,
   ],
   exports: [RemitosService, StockQueriesService, VentasService, EstadosService],
 })
