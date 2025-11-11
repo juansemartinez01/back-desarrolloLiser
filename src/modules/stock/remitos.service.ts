@@ -617,6 +617,8 @@ export class RemitosService {
     }
   }
 
+  // remitos.service.ts
+
   async completarRemitoContable(
     remitoId: string,
     dto: CompletarRemitoContableDto,
@@ -661,7 +663,7 @@ export class RemitosService {
           const item = await itemRepo.findOne({
             where: {
               id: it.remito_item_id,
-              remito: { id: remitoId }, // 👈 FIX
+              remito: { id: remitoId },
             },
           });
 
@@ -671,7 +673,7 @@ export class RemitosService {
             );
           }
 
-          // permitir corregir producto / unidad
+          // 🚩 Corregir producto / unidad (el producto_id del Operario A es irrelevante)
           const itAny = it as any;
           if (itAny.producto_id != null) {
             item.producto_id = Number(itAny.producto_id);
@@ -719,8 +721,10 @@ export class RemitosService {
         }
       }
 
-      // --- Crear lotes si es pre-remito pendiente ---
+      // --- Crear lote físico + lote contable si es pre-remito pendiente ---
       if (remito.es_ingreso_rapido && remito.pendiente) {
+        const fechaLote = remito.fecha_remito;
+
         let itemsBase: RemitoItem[];
         if (itemsActualizados.length) {
           itemsBase = itemsActualizados;
@@ -730,39 +734,48 @@ export class RemitosService {
           });
         }
 
-        const fechaLote = remito.fecha_remito;
-
         for (const item of itemsBase) {
+          // si ya tiene lote físico, no duplicamos
           const yaTieneLotes = await qr.query(
             `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
             [item.id],
           );
           if (yaTieneLotes.length) continue;
 
+          const total = Number(item.cantidad_total || 0);
           const t1 = Number(item.cantidad_tipo1 || 0);
           const t2 = Number(item.cantidad_tipo2 || 0);
 
-          if (t1 > 0) {
-            await qr.query(
-              `
-            INSERT INTO public.stk_lotes
-              (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
-            VALUES ($1,$2,$3,$4,$5,$5)
-            `,
-              [item.id, item.producto_id, fechaLote, 1, toDecimal4(t1)],
-            );
-          }
+          if (total <= 0) continue;
 
-          if (t2 > 0) {
-            await qr.query(
-              `
-            INSERT INTO public.stk_lotes
-              (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
-            VALUES ($1,$2,$3,$4,$5,$5)
-            `,
-              [item.id, item.producto_id, fechaLote, 2, toDecimal4(t2)],
-            );
-          }
+          // 1) Lote físico (único)
+          const loteRows = await qr.query(
+            `
+          INSERT INTO public.stk_lotes
+            (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible, bloqueado)
+          VALUES ($1,$2,$3,$4,$5,$5,false)
+          RETURNING id
+          `,
+            [item.id, item.producto_id, fechaLote, 1, toDecimal4(total)],
+          );
+
+          const loteId: string = loteRows[0].id;
+
+          // 2) Lote contable (tipo1/tipo2)
+          await qr.query(
+            `
+          INSERT INTO public.stk_lotes_contables
+            (lote_id, cantidad_total, cantidad_tipo1, cantidad_tipo2, empresa_factura)
+          VALUES ($1,$2,$3,$4,$5)
+          `,
+            [
+              loteId,
+              toDecimal4(total),
+              toDecimal4(t1),
+              toDecimal4(t2),
+              item.empresa_factura,
+            ],
+          );
         }
 
         remito.pendiente = false;

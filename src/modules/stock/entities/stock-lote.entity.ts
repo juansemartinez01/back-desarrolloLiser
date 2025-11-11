@@ -3,6 +3,7 @@ import { BaseEntity } from '../../../entities/base.entity';
 import { RemitoItem } from './remito-item.entity';
 import { LoteAlmacen } from './lote-almacen.entity';
 import { LoteTipo } from '../enums/lote-tipo.enum';
+import { LoteContable } from './lote-contable.entity';
 
 @Entity('stk_lotes')
 export class StockLote extends BaseEntity {
@@ -37,6 +38,9 @@ export class StockLote extends BaseEntity {
 
   @OneToMany(() => LoteAlmacen, (la) => la.lote)
   en_almacenes: LoteAlmacen[];
+
+  @OneToMany(() => LoteContable, (c) => c.lote)
+  contable: LoteContable[];
 
   @Column({ type: 'boolean', default: false })
   bloqueado: boolean;
