@@ -21,7 +21,7 @@ export class CatalogosService {
 
     const listQb = this.ds
       .createQueryBuilder()
-      .from('stk_proveedores', 'p')
+      .from('fin_proveedores', 'p')
       .select(['p.id AS id', 'p.nombre AS nombre'])
       .where('p.activo = true');
 
@@ -37,7 +37,7 @@ export class CatalogosService {
 
     const countQb = this.ds
       .createQueryBuilder()
-      .from('stk_proveedores', 'p')
+      .from('fin_proveedores', 'p')
       .select('COUNT(1)', 'c')
       .where('p.activo = true');
 
