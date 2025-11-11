@@ -1,5 +1,7 @@
 // src/modules/stock/productos/entities/producto.entity.ts
-import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Unidad } from './unidad.entity';
+import { TipoProducto } from './tipo-producto.entity';
 
 @Entity('stk_productos')
 @Index('ix_producto_nombre', ['nombre'])
@@ -63,4 +65,12 @@ export class Producto {
     default: () => 'now()',
   })
   updated_at: Date;
+
+  @ManyToOne(() => Unidad, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'unidad_id' })
+  unidad: Unidad;
+
+  @ManyToOne(() => TipoProducto, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'tipo_producto_id' })
+  tipo: TipoProducto;
 }

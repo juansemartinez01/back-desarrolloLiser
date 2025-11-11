@@ -18,6 +18,9 @@ import { MovimientoTipo } from './enums/movimiento-tipo.enum';
 import { IngresoRapidoRemitoDto } from './dto/ingreso-rapido-remito.dto';
 import { CompletarRemitoContableDto } from './dto/completar-remito-contable.dto';
 import { QueryRemitosIngresoRapidoDto } from './dto/query-remitos-ingreso-rapido.dto';
+import { EmpresaFactura } from './enums/empresa-factura.enum';
+import { Producto } from './productos/entities/producto.entity';
+import { Unidad } from './productos/entities/unidad.entity';
 
 function toDecimal4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -627,6 +630,9 @@ export class RemitosService {
     await qr.connect();
     await qr.startTransaction();
 
+    const prodRepo = qr.manager.getRepository(Producto);
+    const unidadRepo = qr.manager.getRepository(Unidad);
+
     try {
       const remRepo = qr.manager.getRepository(Remito);
       const itemRepo = qr.manager.getRepository(RemitoItem);
@@ -682,6 +688,31 @@ export class RemitosService {
             item.unidad = itAny.unidad;
           }
 
+          if (itAny.producto_id != null) {
+            const nuevoProdId = Number(itAny.producto_id);
+            const prod = await prodRepo.findOne({ where: { id: nuevoProdId } });
+            if (!prod) {
+              throw new BadRequestException(
+                `Producto ${nuevoProdId} no existe en catálogo`,
+              );
+            }
+
+            item.producto_id = nuevoProdId;
+
+            // Autocompletar unidad = código de la unidad
+            const unidad = await unidadRepo.findOne({
+              where: { id: prod.unidad_id },
+            });
+            if (unidad) {
+              item.unidad = unidad.codigo;
+            }
+
+            // Autocompletar empresa_factura si no viene en el DTO
+            if (!it.empresa_factura && prod.empresa) {
+              item.empresa_factura = prod.empresa as any; // GLADIER / SAYRUS
+            }
+          }
+
           const total = Number(item.cantidad_total); // físico
           let t1 = Number(item.cantidad_tipo1 ?? 0);
           let t2 = Number(item.cantidad_tipo2 ?? 0);
@@ -735,47 +766,95 @@ export class RemitosService {
         }
 
         for (const item of itemsBase) {
-          // si ya tiene lote físico, no duplicamos
-          const yaTieneLotes = await qr.query(
-            `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
-            [item.id],
-          );
-          if (yaTieneLotes.length) continue;
+          if (dto.items?.length) {
+            const prodRepo = qr.manager.getRepository(Producto);
 
-          const total = Number(item.cantidad_total || 0);
-          const t1 = Number(item.cantidad_tipo1 || 0);
-          const t2 = Number(item.cantidad_tipo2 || 0);
+            for (const it of dto.items) {
+              const item = await itemRepo.findOne({
+                where: { id: it.remito_item_id, remito: { id: remitoId } },
+              });
 
-          if (total <= 0) continue;
+              if (!item) {
+                throw new BadRequestException(
+                  `El ítem ${it.remito_item_id} no pertenece al remito`,
+                );
+              }
 
-          // 1) Lote físico (único)
-          const loteRows = await qr.query(
-            `
-          INSERT INTO public.stk_lotes
-            (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible, bloqueado)
-          VALUES ($1,$2,$3,$4,$5,$5,false)
-          RETURNING id
-          `,
-            [item.id, item.producto_id, fechaLote, 1, toDecimal4(total)],
-          );
+              const itAny = it as any;
 
-          const loteId: string = loteRows[0].id;
+              // Si vino un producto_id nuevo, lo usamos como “real”
+              if (itAny.producto_id != null) {
+                const prod = await prodRepo.findOne({
+                  where: { id: Number(itAny.producto_id) },
+                  relations: { unidad: true },
+                });
+                if (!prod) {
+                  throw new BadRequestException(
+                    `Producto ${itAny.producto_id} no existe en maestro`,
+                  );
+                }
 
-          // 2) Lote contable (tipo1/tipo2)
-          await qr.query(
-            `
-          INSERT INTO public.stk_lotes_contables
-            (lote_id, cantidad_total, cantidad_tipo1, cantidad_tipo2, empresa_factura)
-          VALUES ($1,$2,$3,$4,$5)
-          `,
-            [
-              loteId,
-              toDecimal4(total),
-              toDecimal4(t1),
-              toDecimal4(t2),
-              item.empresa_factura,
-            ],
-          );
+                // producto REAL
+                item.producto_id = prod.id;
+
+                // unidad automática desde maestro
+                item.unidad =
+                  prod.unidad?.codigo ?? prod.unidad?.codigo ?? null;
+
+                // empresa_factura automática desde maestro (si viene)
+                if (prod.empresa) {
+                  const emp = prod.empresa.toUpperCase();
+                  if (emp === 'GLADIER' || emp === 'SAYRUS') {
+                    item.empresa_factura = emp as EmpresaFactura;
+                  }
+                }
+              }
+
+              // permitir override manual de unidad / empresa_factura si se mandan
+              if (itAny.unidad !== undefined) {
+                item.unidad = itAny.unidad;
+              }
+              if (it.empresa_factura != null) {
+                item.empresa_factura = it.empresa_factura as any;
+              }
+
+              const total = Number(item.cantidad_total);
+              let t1 = Number(item.cantidad_tipo1 ?? 0);
+              let t2 = Number(item.cantidad_tipo2 ?? 0);
+
+              if (it.cantidad_tipo1 != null) t1 = Number(it.cantidad_tipo1);
+              if (it.cantidad_tipo2 != null) t2 = Number(it.cantidad_tipo2);
+
+              if (it.cantidad_tipo1 != null && it.cantidad_tipo2 == null) {
+                t1 = Number(it.cantidad_tipo1);
+                t2 = total - t1;
+              } else if (
+                it.cantidad_tipo2 != null &&
+                it.cantidad_tipo1 == null
+              ) {
+                t2 = Number(it.cantidad_tipo2);
+                t1 = total - t2;
+              }
+
+              const suma = Number(toDecimal4(t1 + t2));
+              const totalNorm = Number(toDecimal4(total));
+              if (suma !== totalNorm) {
+                throw new BadRequestException(
+                  `Para el ítem ${item.id}, tipo1 (${t1}) + tipo2 (${t2}) debe igualar cantidad_total (${total})`,
+                );
+              }
+
+              item.cantidad_tipo1 = toDecimal4(t1);
+              item.cantidad_tipo2 = toDecimal4(t2);
+
+              if (it.cantidad_remito != null) {
+                item.cantidad_remito = toDecimal4(it.cantidad_remito);
+              }
+
+              await itemRepo.save(item);
+              itemsActualizados.push(item);
+            }
+          }
         }
 
         remito.pendiente = false;

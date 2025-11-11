@@ -28,6 +28,7 @@ import { ConteosController } from './conteos.controller';
 import { ConteosService } from './conteos.service';
 import { CatalogosController } from './catalogos/catalogos.controller';
 import { CatalogosService } from './catalogos/catalogos.service';
+import { ProductosModule } from './productos/productos.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { CatalogosService } from './catalogos/catalogos.service';
       MovimientoStockDetalle,
       StockActual,
       ConsumoPendiente,
+      ProductosModule,
     ]),
   ],
   controllers: [
