@@ -29,6 +29,7 @@ import { ConteosService } from './conteos.service';
 import { CatalogosController } from './catalogos/catalogos.controller';
 import { CatalogosService } from './catalogos/catalogos.service';
 import { ProductosModule } from './productos/productos.module';
+import { LoteContable } from './entities/lote-contable.entity';
 
 @Module({
   imports: [
@@ -41,7 +42,9 @@ import { ProductosModule } from './productos/productos.module';
       MovimientoStockDetalle,
       StockActual,
       ConsumoPendiente,
+      LoteContable,
       ProductosModule,
+      
     ]),
   ],
   controllers: [
