@@ -48,4 +48,5 @@ export class TiposProductoController {
   borrar(@Param('id', ParseIntPipe) id: number) {
     return this.service.borrar(id);
   }
+  
 }
