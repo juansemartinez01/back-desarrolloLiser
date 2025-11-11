@@ -16,22 +16,21 @@ export class CompletarRemitoItemContableDto {
   @IsUUID()
   remito_item_id: string;
 
-  // Split contable
   @IsOptional()
-  @IsNumber()
-  cantidad_tipo1?: number;
+  @IsInt()
+  producto_id?: number; // producto REAL elegido por B
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  unidad?: string; // si no viene, se autocompleta desde producto.unidad_id
 
   @IsOptional()
   @IsNumber()
-  cantidad_tipo2?: number;
-
-  // Cantidad que dice el remito/factura (opcional)
-  @IsOptional()
-  @IsNumber()
-  cantidad_remito?: number;
+  cantidad_remito?: number; // lo que dice el papel
 
   @IsOptional()
-  empresa_factura?: EmpresaFactura;
+  empresa_factura?: EmpresaFactura; // GLADIER / SAYRUS
 }
 
 export class CompletarRemitoContableDto {

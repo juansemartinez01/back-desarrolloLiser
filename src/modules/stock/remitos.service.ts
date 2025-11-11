@@ -620,264 +620,174 @@ export class RemitosService {
     }
   }
 
-  // remitos.service.ts
+  
 
-  async completarRemitoContable(
-    remitoId: string,
-    dto: CompletarRemitoContableDto,
-  ) {
-    const qr = this.ds.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
+async completarRemitoContable(
+  remitoId: string,
+  dto: CompletarRemitoContableDto,
+) {
+  const qr = this.ds.createQueryRunner();
+  await qr.connect();
+  await qr.startTransaction();
 
-    const prodRepo = qr.manager.getRepository(Producto);
-    const unidadRepo = qr.manager.getRepository(Unidad);
+  const prodRepo = qr.manager.getRepository(Producto);
+  const unidadRepo = qr.manager.getRepository(Unidad);
 
-    try {
-      const remRepo = qr.manager.getRepository(Remito);
-      const itemRepo = qr.manager.getRepository(RemitoItem);
+  try {
+    const remRepo = qr.manager.getRepository(Remito);
+    const itemRepo = qr.manager.getRepository(RemitoItem);
 
-      const remito = await remRepo.findOne({ where: { id: remitoId } });
-      if (!remito) {
-        throw new NotFoundException('Remito no encontrado');
-      }
+    const remito = await remRepo.findOne({ where: { id: remitoId } });
+    if (!remito) {
+      throw new NotFoundException('Remito no encontrado');
+    }
 
-      // --- Cabecera ---
-      if (dto.numero_remito !== undefined && dto.numero_remito !== null) {
-        remito.numero_remito = dto.numero_remito;
-      }
-      if (dto.proveedor_id !== undefined) {
-        remito.proveedor_id =
-          dto.proveedor_id === null ? null : dto.proveedor_id;
-      }
-      if (dto.proveedor_nombre !== undefined) {
-        remito.proveedor_nombre =
-          dto.proveedor_nombre === null ? null : dto.proveedor_nombre;
-      }
-      if (dto.observaciones !== undefined) {
-        remito.observaciones =
-          dto.observaciones === null ? null : dto.observaciones;
-      }
+    // ---------- CABECERA ----------
+    if (dto.numero_remito !== undefined && dto.numero_remito !== null) {
+      remito.numero_remito = dto.numero_remito;
+    }
+    if (dto.proveedor_id !== undefined) {
+      remito.proveedor_id =
+        dto.proveedor_id === null ? null : dto.proveedor_id;
+    }
+    if (dto.proveedor_nombre !== undefined) {
+      remito.proveedor_nombre =
+        dto.proveedor_nombre === null ? null : dto.proveedor_nombre;
+    }
+    if (dto.observaciones !== undefined) {
+      remito.observaciones =
+        dto.observaciones === null ? null : dto.observaciones;
+    }
+    await remRepo.save(remito);
 
-      await remRepo.save(remito);
+    const itemsActualizados: RemitoItem[] = [];
 
-      const itemsActualizados: RemitoItem[] = [];
+    // ---------- ITEMS (AJUSTE + AUTOCOMPLETE) ----------
+    if (dto.items?.length) {
+      for (const it of dto.items) {
+        const item = await itemRepo.findOne({
+          where: { id: it.remito_item_id, remito: { id: remitoId } },
+        });
 
-      // --- Ítems ---
-      if (dto.items?.length) {
-        for (const it of dto.items) {
-          const item = await itemRepo.findOne({
-            where: {
-              id: it.remito_item_id,
-              remito: { id: remitoId },
-            },
+        if (!item) {
+          throw new BadRequestException(
+            `El ítem ${it.remito_item_id} no pertenece al remito`,
+          );
+        }
+
+        // 1) Si vino producto_id, lo tomamos como producto REAL
+        if (it.producto_id != null) {
+          const prod = await prodRepo.findOne({
+            where: { id: it.producto_id },
           });
-
-          if (!item) {
+          if (!prod) {
             throw new BadRequestException(
-              `El ítem ${it.remito_item_id} no pertenece al remito`,
+              `Producto ${it.producto_id} no existe en catálogo`,
             );
           }
 
-          // 🚩 Corregir producto / unidad (el producto_id del Operario A es irrelevante)
-          const itAny = it as any;
-          if (itAny.producto_id != null) {
-            item.producto_id = Number(itAny.producto_id);
-          }
-          if (itAny.unidad !== undefined) {
-            item.unidad = itAny.unidad;
-          }
+          item.producto_id = prod.id;
 
-          if (itAny.producto_id != null) {
-            const nuevoProdId = Number(itAny.producto_id);
-            const prod = await prodRepo.findOne({ where: { id: nuevoProdId } });
-            if (!prod) {
-              throw new BadRequestException(
-                `Producto ${nuevoProdId} no existe en catálogo`,
-              );
-            }
-
-            item.producto_id = nuevoProdId;
-
-            // Autocompletar unidad = código de la unidad
+          // Unidad automática desde maestro si:
+          // - el DTO no trae unidad
+          // - y el producto tiene unidad_id válido
+          if (!it.unidad && prod.unidad_id) {
             const unidad = await unidadRepo.findOne({
               where: { id: prod.unidad_id },
             });
             if (unidad) {
               item.unidad = unidad.codigo;
             }
-
-            // Autocompletar empresa_factura si no viene en el DTO
-            if (!it.empresa_factura && prod.empresa) {
-              item.empresa_factura = prod.empresa as any; // GLADIER / SAYRUS
-            }
           }
 
-          const total = Number(item.cantidad_total); // físico
-          let t1 = Number(item.cantidad_tipo1 ?? 0);
-          let t2 = Number(item.cantidad_tipo2 ?? 0);
-
-          if (it.cantidad_tipo1 != null) t1 = Number(it.cantidad_tipo1);
-          if (it.cantidad_tipo2 != null) t2 = Number(it.cantidad_tipo2);
-
-          if (it.cantidad_tipo1 != null && it.cantidad_tipo2 == null) {
-            t1 = Number(it.cantidad_tipo1);
-            t2 = total - t1;
-          } else if (it.cantidad_tipo2 != null && it.cantidad_tipo1 == null) {
-            t2 = Number(it.cantidad_tipo2);
-            t1 = total - t2;
-          }
-
-          const suma = Number(toDecimal4(t1 + t2));
-          const totalNorm = Number(toDecimal4(total));
-          if (suma !== totalNorm) {
-            throw new BadRequestException(
-              `Para el ítem ${item.id}, tipo1 (${t1}) + tipo2 (${t2}) debe igualar cantidad_total (${total})`,
-            );
-          }
-
-          item.cantidad_tipo1 = toDecimal4(t1);
-          item.cantidad_tipo2 = toDecimal4(t2);
-
-          if (it.cantidad_remito != null) {
-            item.cantidad_remito = toDecimal4(it.cantidad_remito);
-          }
-
-          if (it.empresa_factura != null) {
-            item.empresa_factura = it.empresa_factura as any;
-          }
-
-          await itemRepo.save(item);
-          itemsActualizados.push(item);
-        }
-      }
-
-      // --- Crear lote físico + lote contable si es pre-remito pendiente ---
-      if (remito.es_ingreso_rapido && remito.pendiente) {
-        const fechaLote = remito.fecha_remito;
-
-        let itemsBase: RemitoItem[];
-        if (itemsActualizados.length) {
-          itemsBase = itemsActualizados;
-        } else {
-          itemsBase = await itemRepo.find({
-            where: { remito: { id: remitoId } },
-          });
-        }
-
-        for (const item of itemsBase) {
-          if (dto.items?.length) {
-            const prodRepo = qr.manager.getRepository(Producto);
-
-            for (const it of dto.items) {
-              const item = await itemRepo.findOne({
-                where: { id: it.remito_item_id, remito: { id: remitoId } },
-              });
-
-              if (!item) {
-                throw new BadRequestException(
-                  `El ítem ${it.remito_item_id} no pertenece al remito`,
-                );
-              }
-
-              const itAny = it as any;
-
-              // Si vino un producto_id nuevo, lo usamos como “real”
-              if (itAny.producto_id != null) {
-                const prod = await prodRepo.findOne({
-                  where: { id: Number(itAny.producto_id) },
-                  relations: { unidad: true },
-                });
-                if (!prod) {
-                  throw new BadRequestException(
-                    `Producto ${itAny.producto_id} no existe en maestro`,
-                  );
-                }
-
-                // producto REAL
-                item.producto_id = prod.id;
-
-                // unidad automática desde maestro
-                item.unidad =
-                  prod.unidad?.codigo ?? prod.unidad?.codigo ?? null;
-
-                // empresa_factura automática desde maestro (si viene)
-                if (prod.empresa) {
-                  const emp = prod.empresa.toUpperCase();
-                  if (emp === 'GLADIER' || emp === 'SAYRUS') {
-                    item.empresa_factura = emp as EmpresaFactura;
-                  }
-                }
-              }
-
-              // permitir override manual de unidad / empresa_factura si se mandan
-              if (itAny.unidad !== undefined) {
-                item.unidad = itAny.unidad;
-              }
-              if (it.empresa_factura != null) {
-                item.empresa_factura = it.empresa_factura as any;
-              }
-
-              const total = Number(item.cantidad_total);
-              let t1 = Number(item.cantidad_tipo1 ?? 0);
-              let t2 = Number(item.cantidad_tipo2 ?? 0);
-
-              if (it.cantidad_tipo1 != null) t1 = Number(it.cantidad_tipo1);
-              if (it.cantidad_tipo2 != null) t2 = Number(it.cantidad_tipo2);
-
-              if (it.cantidad_tipo1 != null && it.cantidad_tipo2 == null) {
-                t1 = Number(it.cantidad_tipo1);
-                t2 = total - t1;
-              } else if (
-                it.cantidad_tipo2 != null &&
-                it.cantidad_tipo1 == null
-              ) {
-                t2 = Number(it.cantidad_tipo2);
-                t1 = total - t2;
-              }
-
-              const suma = Number(toDecimal4(t1 + t2));
-              const totalNorm = Number(toDecimal4(total));
-              if (suma !== totalNorm) {
-                throw new BadRequestException(
-                  `Para el ítem ${item.id}, tipo1 (${t1}) + tipo2 (${t2}) debe igualar cantidad_total (${total})`,
-                );
-              }
-
-              item.cantidad_tipo1 = toDecimal4(t1);
-              item.cantidad_tipo2 = toDecimal4(t2);
-
-              if (it.cantidad_remito != null) {
-                item.cantidad_remito = toDecimal4(it.cantidad_remito);
-              }
-
-              await itemRepo.save(item);
-              itemsActualizados.push(item);
+          // Empresa factura automática si:
+          // - el DTO no la manda
+          // - y el producto tiene empresa GLADIER / SAYRUS
+          if (!it.empresa_factura && prod.empresa) {
+            const emp = prod.empresa.toUpperCase();
+            if (emp === 'GLADIER' || emp === 'SAYRUS') {
+              item.empresa_factura = emp as EmpresaFactura;
             }
           }
         }
 
-        remito.pendiente = false;
-        await remRepo.save(remito);
-      }
+        // 2) Overrides manuales desde DTO
+        if (it.unidad !== undefined) {
+          item.unidad = it.unidad;
+        }
+        if (it.empresa_factura != null) {
+          item.empresa_factura = it.empresa_factura as any;
+        }
+        if (it.cantidad_remito != null) {
+          item.cantidad_remito = toDecimal4(it.cantidad_remito);
+        }
 
-      await qr.commitTransaction();
-      return { ok: true, remito_id: remitoId };
-    } catch (e: any) {
-      await qr.rollbackTransaction();
-      console.error(
-        '[PATCH /stock/remitos/:id/contable] error:',
-        e?.detail || e?.message || e,
-      );
-      throw new BadRequestException(
-        e?.detail ||
-          e?.message ||
-          'Error completando datos contables del remito',
-      );
-    } finally {
-      await qr.release();
+        // 3) NO tocamos cantidad_tipo1 / cantidad_tipo2 aquí
+        await itemRepo.save(item);
+        itemsActualizados.push(item);
+      }
     }
+
+    // ---------- CREACIÓN DE LOTES FÍSICOS ----------
+    // Solo si era un pre-remito de ingreso rápido y está pendiente
+    if (remito.es_ingreso_rapido && remito.pendiente) {
+      const fechaLote = remito.fecha_remito;
+
+      let itemsBase: RemitoItem[];
+      if (itemsActualizados.length) {
+        itemsBase = itemsActualizados;
+      } else {
+        itemsBase = await itemRepo.find({ where: { remito: { id: remitoId } } });
+      }
+
+      const loteRepo = qr.manager.getRepository(StockLote);
+
+      for (const item of itemsBase) {
+        // si por algún motivo ya tiene lotes, no duplicamos
+        const yaTieneLotes = await loteRepo.findOne({
+          where: { remito_item: { id: item.id } },
+        });
+        if (yaTieneLotes) continue;
+
+        const total = Number(item.cantidad_total);
+
+        // Por ahora, todo el stock físico va como lote_tipo=1
+        const lote = loteRepo.create({
+          remito_item: { id: item.id } as any,
+          producto_id: item.producto_id,
+          fecha_remito: fechaLote,
+          lote_tipo: 1, // físico, no contable
+          cantidad_inicial: toDecimal4(total),
+          cantidad_disponible: toDecimal4(total),
+          bloqueado: false,
+        });
+
+        await loteRepo.save(lote);
+      }
+
+      // Ya no es pendiente: tiene lotes físicos y datos contables básicos
+      remito.pendiente = false;
+      await remRepo.save(remito);
+    }
+
+    await qr.commitTransaction();
+    return { ok: true, remito_id: remitoId };
+  } catch (e: any) {
+    await qr.rollbackTransaction();
+    console.error(
+      '[PATCH /stock/remitos/:id/contable] error:',
+      e?.detail || e?.message || e,
+    );
+    throw new BadRequestException(
+      e?.detail ||
+        e?.message ||
+        'Error completando datos contables del remito',
+    );
+  } finally {
+    await qr.release();
   }
+}
+
 
   async listarRemitosIngresoRapido(q: QueryRemitosIngresoRapidoDto) {
     const page = q.page && q.page > 0 ? q.page : 1;
