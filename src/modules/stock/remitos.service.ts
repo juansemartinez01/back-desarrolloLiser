@@ -634,7 +634,7 @@ export class RemitosService {
         throw new NotFoundException('Remito no encontrado');
       }
 
-      // --- Actualizar cabecera (proveedor, número, obs) ---
+      // --- Cabecera ---
       if (dto.numero_remito !== undefined && dto.numero_remito !== null) {
         remito.numero_remito = dto.numero_remito;
       }
@@ -653,14 +653,16 @@ export class RemitosService {
 
       await remRepo.save(remito);
 
-      // Ítems tocados (para luego crear lotes)
       const itemsActualizados: RemitoItem[] = [];
 
-      // --- Actualizar ítems contables / producto / unidad ---
+      // --- Ítems ---
       if (dto.items?.length) {
         for (const it of dto.items) {
           const item = await itemRepo.findOne({
-            where: { id: it.remito_item_id, remito_id: remitoId },
+            where: {
+              id: it.remito_item_id,
+              remito: { id: remitoId }, // 👈 FIX
+            },
           });
 
           if (!item) {
@@ -669,47 +671,22 @@ export class RemitosService {
             );
           }
 
+          // permitir corregir producto / unidad
           const itAny = it as any;
-
-          // ¿Quieren corregir el producto_id que dejó el Operario A?
           if (itAny.producto_id != null) {
-            const nuevoProdId = Number(itAny.producto_id);
-
-            if (nuevoProdId !== item.producto_id) {
-              // Si ya hay lotes, no dejamos cambiar el producto
-              const lotesExist = await qr.query(
-                `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
-                [item.id],
-              );
-              if (lotesExist.length) {
-                throw new BadRequestException(
-                  `No se puede cambiar el producto del ítem ${item.id} porque ya tiene lotes generados`,
-                );
-              }
-
-              item.producto_id = nuevoProdId;
-            }
+            item.producto_id = Number(itAny.producto_id);
           }
-
-          // Unidad: el Operario B puede setear la unidad formal
           if (itAny.unidad !== undefined) {
             item.unidad = itAny.unidad;
           }
 
-          // Punto de partida: lo que ya tiene (cant. física total)
-          const total = Number(item.cantidad_total);
+          const total = Number(item.cantidad_total); // físico
           let t1 = Number(item.cantidad_tipo1 ?? 0);
           let t2 = Number(item.cantidad_tipo2 ?? 0);
 
-          // Si viene explícito en el DTO, pisamos
-          if (it.cantidad_tipo1 != null) {
-            t1 = Number(it.cantidad_tipo1);
-          }
-          if (it.cantidad_tipo2 != null) {
-            t2 = Number(it.cantidad_tipo2);
-          }
+          if (it.cantidad_tipo1 != null) t1 = Number(it.cantidad_tipo1);
+          if (it.cantidad_tipo2 != null) t2 = Number(it.cantidad_tipo2);
 
-          // Atajos: si viene solo uno, calculamos el otro para que sumen total
           if (it.cantidad_tipo1 != null && it.cantidad_tipo2 == null) {
             t1 = Number(it.cantidad_tipo1);
             t2 = total - t1;
@@ -718,7 +695,6 @@ export class RemitosService {
             t1 = total - t2;
           }
 
-          // VALIDACIÓN: tipo1 + tipo2 debe igualar cantidad_total (física)
           const suma = Number(toDecimal4(t1 + t2));
           const totalNorm = Number(toDecimal4(total));
           if (suma !== totalNorm) {
@@ -743,28 +719,29 @@ export class RemitosService {
         }
       }
 
-      // --- Crear lotes si es un ingreso rápido pendiente ---
-      if ((remito as any).es_ingreso_rapido && (remito as any).pendiente) {
+      // --- Crear lotes si es pre-remito pendiente ---
+      if (remito.es_ingreso_rapido && remito.pendiente) {
+        let itemsBase: RemitoItem[];
+        if (itemsActualizados.length) {
+          itemsBase = itemsActualizados;
+        } else {
+          itemsBase = await itemRepo.find({
+            where: { remito: { id: remitoId } },
+          });
+        }
+
         const fechaLote = remito.fecha_remito;
 
-        // Si no vino ningún item en el PATCH, tomamos todos
-        const itemsBase: RemitoItem[] =
-          itemsActualizados.length > 0
-            ? itemsActualizados
-            : await itemRepo.find({ where: { remito_id: remitoId } });
-
         for (const item of itemsBase) {
-          // Si ya tenía lotes, no hacemos nada (por seguridad)
-          const lotesExist = await qr.query(
+          const yaTieneLotes = await qr.query(
             `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
             [item.id],
           );
-          if (lotesExist.length) continue;
+          if (yaTieneLotes.length) continue;
 
           const t1 = Number(item.cantidad_tipo1 || 0);
           const t2 = Number(item.cantidad_tipo2 || 0);
 
-          // Lote tipo 1
           if (t1 > 0) {
             await qr.query(
               `
@@ -776,7 +753,6 @@ export class RemitosService {
             );
           }
 
-          // Lote tipo 2
           if (t2 > 0) {
             await qr.query(
               `
@@ -789,16 +765,12 @@ export class RemitosService {
           }
         }
 
-        // Marcamos el remito como ya NO pendiente
-        (remito as any).pendiente = false;
+        remito.pendiente = false;
         await remRepo.save(remito);
       }
 
       await qr.commitTransaction();
-      return {
-        ok: true,
-        remito_id: remitoId,
-      };
+      return { ok: true, remito_id: remitoId };
     } catch (e: any) {
       await qr.rollbackTransaction();
       console.error(
