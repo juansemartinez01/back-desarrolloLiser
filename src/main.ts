@@ -6,7 +6,10 @@ import { ValidationPipe } from '@nestjs/common';
 import { HttpExceptionFilter } from './http/http-exception.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+    bufferLogs: true,
+  });
   app.useLogger(app.get(Logger));
 
   app.setGlobalPrefix('api');

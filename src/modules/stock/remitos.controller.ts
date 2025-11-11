@@ -24,6 +24,7 @@ export class RemitosController {
 
   @Post('ingreso-rapido')
   async ingresoRapido(@Body() dto: IngresoRapidoRemitoDto) {
+    console.log('>>> HIT ingreso-rapido', JSON.stringify(dto));
     return this.service.crearRemitoIngresoRapido(dto);
   }
 
@@ -37,6 +38,7 @@ export class RemitosController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: CreateDistribucionRemitoDto,
   ) {
+    console.log('>>> HIT Ingreso distribucion', JSON.stringify(dto));
     return this.service.distribuirRemito(id, dto);
   }
 
