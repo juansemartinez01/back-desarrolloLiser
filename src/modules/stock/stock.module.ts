@@ -34,6 +34,8 @@ import { UnidadesController } from './productos/unidades.controller';
 import { TiposProductoController } from './productos/tipos-producto.controller';
 import { UnidadesService } from './productos/unidades.service';
 import { TiposProductoService } from './productos/tipos-producto.service';
+import { LotesContablesController } from './lotes-contables/lotes-contables.controller';
+import { LotesContablesService } from './lotes-contables/lotes-contables.service';
 
 @Module({
   imports: [
@@ -63,6 +65,7 @@ import { TiposProductoService } from './productos/tipos-producto.service';
     CatalogosController,
     UnidadesController,
     TiposProductoController,
+    LotesContablesController,
   ],
   providers: [
     StockService,
@@ -77,6 +80,7 @@ import { TiposProductoService } from './productos/tipos-producto.service';
     CatalogosService,
     UnidadesService,
     TiposProductoService,
+    LotesContablesService,
   ],
   exports: [RemitosService, StockQueriesService, VentasService, EstadosService],
 })

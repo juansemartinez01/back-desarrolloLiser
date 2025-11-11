@@ -10,6 +10,7 @@ import {
 import { BaseEntity } from '../../../entities/base.entity';
 import { StockLote } from './stock-lote.entity';
 import { EmpresaFactura } from '../enums/empresa-factura.enum';
+import { LoteContableEstado } from '../enums/lote-contable-estado.enum';
 
 @Entity('stk_lotes_contables')
 export class LoteContable extends BaseEntity {
@@ -31,6 +32,19 @@ export class LoteContable extends BaseEntity {
   @Column({ type: 'numeric', precision: 18, scale: 4 })
   cantidad_tipo2: string;
 
+  // cuánto del lote contable ya se imputó como vendido
+  @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
+  cantidad_vendida: string;
+
   @Column({ type: 'varchar', length: 20 })
   empresa_factura: EmpresaFactura;
+
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: LoteContableEstado.SIN_VENDER,
+  })
+  estado: LoteContableEstado;
+
+  
 }
