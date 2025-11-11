@@ -7,80 +7,86 @@ import { QueryCatalogoDto } from '../dto/query-catalogo.dto';
 export class CatalogosService {
   constructor(private readonly ds: DataSource) {}
 
-  async listarProveedores(q: QueryCatalogoDto) {
-    const page = q.page ?? 1;
-    const limit = q.limit ?? 50;
-    const offset = (page - 1) * limit;
-    const search = q.q?.trim();
-
-    // 👇 ajustá el nombre de la tabla/columnas a tu maestro real
-    const params: any[] = [];
-    let where = '1=1';
-    if (search) {
-      params.push(`%${search}%`);
-      where = 'p.nombre ILIKE $1';
-    }
-
-    const rows = await this.ds.query(
-      `
-      SELECT p.id, p.nombre
-      FROM public.proveedores p
-      WHERE ${where}
-      ORDER BY p.nombre ASC
-      LIMIT $2 OFFSET $3
-      `,
-      [...params, limit, offset],
-    );
-
-    const totalRow = await this.ds
-      .query(
-        `
-        SELECT COUNT(1) AS c
-        FROM public.proveedores p
-        WHERE ${where}
-        `,
-        params,
-      )
-      .then((r) => Number(r[0]?.c || 0));
-
-    return { data: rows, total: totalRow, page, limit };
+  private normPageLimit(q: QueryCatalogoDto) {
+    const page = q.page && q.page > 0 ? q.page : 1;
+    const limit = q.limit && q.limit > 0 ? q.limit : 50;
+    const skip = (page - 1) * limit;
+    return { page, limit, skip };
   }
 
-  async listarConductores(q: QueryCatalogoDto) {
-    const page = q.page ?? 1;
-    const limit = q.limit ?? 50;
-    const offset = (page - 1) * limit;
-    const search = q.q?.trim();
+  // ---------- PROVEEDORES ----------
+  async listarProveedores(q: QueryCatalogoDto) {
+    const { page, limit, skip } = this.normPageLimit(q);
+    const search = q.search?.trim();
 
-    const params: any[] = [];
-    let where = 'c.activo = true';
+    const listQb = this.ds
+      .createQueryBuilder()
+      .from('stk_proveedores', 'p')
+      .select(['p.id AS id', 'p.nombre AS nombre'])
+      .where('p.activo = true');
+
     if (search) {
-      params.push(`%${search}%`);
-      where += ' AND c.nombre ILIKE $1';
+      listQb.andWhere('unaccent(p.nombre) ILIKE unaccent(:search)', {
+        search: `%${search}%`,
+      });
     }
 
-    const rows = await this.ds.query(
-      `
-      SELECT c.id, c.nombre
-      FROM public.stk_conductores_camion c
-      WHERE ${where}
-      ORDER BY c.nombre ASC
-      LIMIT $2 OFFSET $3
-      `,
-      [...params, limit, offset],
-    );
+    listQb.orderBy('p.nombre', 'ASC').limit(limit).offset(skip);
 
-    const totalRow = await this.ds
-      .query(
-        `
-        SELECT COUNT(1) AS c
-        FROM public.stk_conductores_camion c
-        WHERE ${where}
-        `,
-        params,
-      )
-      .then((r) => Number(r[0]?.c || 0));
+    const rows = await listQb.getRawMany();
 
-    return { data: rows, total: totalRow, page, limit };
+    const countQb = this.ds
+      .createQueryBuilder()
+      .from('stk_proveedores', 'p')
+      .select('COUNT(1)', 'c')
+      .where('p.activo = true');
+
+    if (search) {
+      countQb.andWhere('unaccent(p.nombre) ILIKE unaccent(:search)', {
+        search: `%${search}%`,
+      });
+    }
+
+    const total = await countQb.getRawOne().then((r: any) => Number(r?.c) || 0);
+
+    return { data: rows, total, page, limit };
+  }
+
+  // ---------- CONDUCTORES ----------
+  async listarConductores(q: QueryCatalogoDto) {
+    const { page, limit, skip } = this.normPageLimit(q);
+    const search = q.search?.trim();
+
+    const listQb = this.ds
+      .createQueryBuilder()
+      .from('stk_conductores_camion', 'c')
+      .select(['c.id AS id', 'c.nombre AS nombre'])
+      .where('c.activo = true');
+
+    if (search) {
+      listQb.andWhere('unaccent(c.nombre) ILIKE unaccent(:search)', {
+        search: `%${search}%`,
+      });
+    }
+
+    listQb.orderBy('c.nombre', 'ASC').limit(limit).offset(skip);
+
+    const rows = await listQb.getRawMany();
+
+    const countQb = this.ds
+      .createQueryBuilder()
+      .from('stk_conductores_camion', 'c')
+      .select('COUNT(1)', 'c')
+      .where('c.activo = true');
+
+    if (search) {
+      countQb.andWhere('unaccent(c.nombre) ILIKE unaccent(:search)', {
+        search: `%${search}%`,
+      });
+    }
+
+    const total = await countQb.getRawOne().then((r: any) => Number(r?.c) || 0);
+
+    return { data: rows, total, page, limit };
   }
 }
