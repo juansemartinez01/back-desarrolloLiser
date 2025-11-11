@@ -16,6 +16,18 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 
+  app.enableCors({
+    origin: [
+      'http://localhost:3001',
+      'http://localhost:3000',
+      'https://frontendliser-production.up.railway.app',
+      'https://thriving-forgiveness-pruebas-desarrollo.up.railway.app',
+      'https://liser.com.ar',
+    ], // o true para permitir todos los orígenes (no recomendado en producción)
+    credentials: true, // si usas cookies o autenticación con tokens en headers
+  });
+  
+
   await app.listen(process.env.PORT || 3000);
 }
 bootstrap();
