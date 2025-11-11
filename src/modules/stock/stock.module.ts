@@ -47,9 +47,8 @@ import { TiposProductoService } from './productos/tipos-producto.service';
       StockActual,
       ConsumoPendiente,
       LoteContable,
-      ProductosModule,
-      
     ]),
+    ProductosModule,
   ],
   controllers: [
     StockController,
@@ -63,7 +62,7 @@ import { TiposProductoService } from './productos/tipos-producto.service';
     ConteosController,
     CatalogosController,
     UnidadesController,
-    TiposProductoController
+    TiposProductoController,
   ],
   providers: [
     StockService,
@@ -77,7 +76,7 @@ import { TiposProductoService } from './productos/tipos-producto.service';
     ConteosService,
     CatalogosService,
     UnidadesService,
-    TiposProductoService
+    TiposProductoService,
   ],
   exports: [RemitosService, StockQueriesService, VentasService, EstadosService],
 })
