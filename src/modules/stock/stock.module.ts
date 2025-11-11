@@ -14,8 +14,7 @@ import { StockActual } from './entities/stock-actual.entity';
 import { ConsumoPendiente } from './entities/consumo-pendiente.entity';
 import { StockConsultasController } from './consultas.controller';
 import { StockQueriesService } from './consultas.service';
-import { VentasConsumoController } from './ventas.controller';
-import { VentasService } from './ventas.service';
+
 import { EstadosController } from './estados.controller';
 import { EstadosService } from './estados.service';
 import { LotesController } from './lotes.controller';
@@ -38,6 +37,8 @@ import { LotesContablesController } from './lotes-contables/lotes-contables.cont
 import { LotesContablesService } from './lotes-contables/lotes-contables.service';
 import { LotesFisicosService } from './lotes-fisicos.service';
 import { LotesFisicosController } from './lotes-fisicos.controller';
+import { VentasController } from './movimientos/ventas.controller';
+import { VentasService } from './movimientos/ventas.service';
 
 @Module({
   imports: [
@@ -58,7 +59,7 @@ import { LotesFisicosController } from './lotes-fisicos.controller';
     StockController,
     RemitosController,
     StockConsultasController,
-    VentasConsumoController,
+    VentasController,
     EstadosController,
     LotesController,
     TransferenciasController,
