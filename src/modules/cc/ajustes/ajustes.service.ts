@@ -55,9 +55,9 @@ export class AjustesService {
       // Crear ajuste
       const [aj] = await qr.query(
         `INSERT INTO public.cc_ajustes
-           (fecha, cliente_id, tipo, monto_total, referencia_externa, observacion)
+           (fecha, cliente_id, tipo, importe, referencia_externa, observacion)
          VALUES ($1,$2,$3,$4,$5,$6)
-         RETURNING id, fecha, cliente_id, tipo, monto_total, referencia_externa, observacion, created_at, updated_at`,
+         RETURNING id, fecha, cliente_id, tipo, importe, referencia_externa, observacion, created_at, updated_at`,
         [
           new Date(dto.fecha),
           dto.cliente_id,
@@ -211,10 +211,10 @@ export class AjustesService {
       )
       SELECT
         a.id, a.fecha, a.cliente_id, a.tipo,
-        a.monto_total::numeric(18,4) AS monto_total,
+        a.importe::numeric(18,4) AS importe,
         COALESCE(ap.aplicado,0)::numeric(18,4) AS aplicado,
         CASE WHEN a.tipo = 'NC'
-             THEN (a.monto_total - COALESCE(ap.aplicado,0))::numeric(18,4)
+             THEN (a.importe - COALESCE(ap.aplicado,0))::numeric(18,4)
              ELSE 0::numeric(18,4)
         END AS sin_aplicar,
         a.referencia_externa, a.observacion, a.created_at, a.updated_at
@@ -240,7 +240,7 @@ export class AjustesService {
   // Detalle con aplicaciones
   async detalleAjuste(id: string) {
     const aj = await this.ds.query(
-      `SELECT id, fecha, cliente_id, tipo, monto_total::numeric(18,4) AS monto_total,
+      `SELECT id, fecha, cliente_id, tipo, importe::numeric(18,4) AS importe,
               referencia_externa, observacion, created_at, updated_at
        FROM public.cc_ajustes WHERE id = $1`,
       [id],
@@ -280,7 +280,7 @@ export class AjustesService {
     id: string,
   ) {
     const aj = await qr.query(
-      `SELECT id, fecha, cliente_id, tipo, monto_total::numeric(18,4) AS monto_total,
+      `SELECT id, fecha, cliente_id, tipo, importe::numeric(18,4) AS importe,
               referencia_externa, observacion, created_at, updated_at
        FROM public.cc_ajustes WHERE id = $1`,
       [id],
