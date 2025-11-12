@@ -1,4 +1,4 @@
 export enum AjusteTipo {
-  DEBITO = 'DEBITO',
-  CREDITO = 'CREDITO',
+  ND = 'ND',
+  NC = 'NC',
 }
