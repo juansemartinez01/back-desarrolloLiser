@@ -58,9 +58,9 @@ export class PagosService {
       const pagoRows = await qr.query(
         `
         INSERT INTO public.cc_pagos
-          (fecha, cliente_id, cuenta, importe_total, referencia_externa, observacion)
+          (fecha, cliente_id, cuenta, importe, referencia_externa, observacion)
         VALUES ($1,$2,$3,$4,$5,$6)
-        RETURNING id, fecha, cliente_id, cuenta, importe_total, referencia_externa, observacion, created_at, updated_at
+        RETURNING id, fecha, cliente_id, cuenta, importe, referencia_externa, observacion, created_at, updated_at
         `,
         [
           new Date(dto.fecha),
@@ -186,7 +186,7 @@ export class PagosService {
         GROUP BY pago_id
       )
       SELECT
-        p.id, p.fecha, p.cliente_id, p.cuenta, p.importe::numeric(18,4) AS importe_total,
+        p.id, p.fecha, p.cliente_id, p.cuenta, p.importe::numeric(18,4) AS importe,
         COALESCE(a.aplicado,0)::numeric(18,4) AS aplicado,
         (p.importe - COALESCE(a.aplicado,0))::numeric(18,4) AS sin_aplicar,
         p.referencia_externa, p.observacion, p.created_at, p.updated_at
@@ -217,7 +217,7 @@ export class PagosService {
   async detallePago(id: string) {
     const pago = await this.ds.query(
       `
-      SELECT id, fecha, cliente_id, cuenta, importe_total::numeric(18,4) AS importe_total,
+      SELECT id, fecha, cliente_id, cuenta, importe::numeric(18,4) AS importe,
              referencia_externa, observacion, created_at, updated_at
       FROM public.cc_pagos
       WHERE id = $1
@@ -262,7 +262,7 @@ export class PagosService {
   ) {
     const pago = await qr.query(
       `
-      SELECT id, fecha, cliente_id, cuenta, importe_total::numeric(18,4) AS importe_total,
+      SELECT id, fecha, cliente_id, cuenta, importe::numeric(18,4) AS importe,
              referencia_externa, observacion, created_at, updated_at
       FROM public.cc_pagos
       WHERE id = $1
