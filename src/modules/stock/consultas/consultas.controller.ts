@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { StockQueriesService } from './consultas.service';
-import { QueryStockActualDto } from './dto/query-stock-actual.dto';
-import { QueryKardexDto } from './dto/query-kardex.dto';
+import { StockQueriesService } from '../consultas/consultas.service';
+import { QueryStockActualDto } from '../stock-actual/dto/query-stock-actual.dto';
+import { QueryKardexDto } from '../dto/query-kardex.dto';
 
 @Controller('stock')
 export class StockConsultasController {

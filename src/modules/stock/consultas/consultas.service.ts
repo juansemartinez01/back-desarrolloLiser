@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { QueryStockActualDto } from './dto/query-stock-actual.dto';
-import { QueryKardexDto } from './dto/query-kardex.dto';
+import { QueryStockActualDto } from '../stock-actual/dto/query-stock-actual.dto';
+import { QueryKardexDto } from '../dto/query-kardex.dto';
 
 
 function toDateOrUndefined(v?: string): Date | undefined { return v ? new Date(v) : undefined; }
