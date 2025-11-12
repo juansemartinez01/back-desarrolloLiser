@@ -98,17 +98,18 @@ export class EstadoCuentaService {
 
         UNION ALL
 
-        -- PAGOS (Cuenta 1/2)
+       -- PAGOS (Cuenta 1/2)
         SELECT
           p.cliente_id,
           p.fecha,
-          CASE WHEN p.cuenta = 1 THEN 'PAGO_C1' ELSE 'PAGO_C2' END AS tipo,
+          CASE WHEN p.cuenta = 'CUENTA1'::cc_pago_cuenta THEN 'PAGO_C1' ELSE 'PAGO_C2' END AS tipo,
           p.id::text AS origen_id,
           COALESCE(p.referencia_externa,'') AS ref,
           p.observacion,
           (-p.importe_total)::numeric(18,4) AS importe_signed
         FROM public.cc_pagos p
         WHERE p.cliente_id = $1
+
 
         UNION ALL
 
@@ -178,13 +179,19 @@ export class EstadoCuentaService {
         SELECT c.fecha, 'CARGO'::text AS tipo, (c.importe)::numeric AS amt
         FROM public.cc_cargos c
         WHERE c.cliente_id = $1
+
         UNION ALL
-        SELECT p.fecha, CASE WHEN p.cuenta = 1 THEN 'PAGO_C1' ELSE 'PAGO_C2' END, (-p.importe_total)::numeric
+
+        SELECT p.fecha,
+              CASE WHEN p.cuenta = 'CUENTA1'::cc_pago_cuenta THEN 'PAGO_C1' ELSE 'PAGO_C2' END,
+              (-p.importe_total)::numeric
         FROM public.cc_pagos p
         WHERE p.cliente_id = $1
+
         UNION ALL
         SELECT a.fecha, 'NC', (-a.monto_total)::numeric
         FROM public.cc_ajustes a WHERE a.cliente_id = $1 AND a.tipo = 'NC'
+
         UNION ALL
         SELECT a.fecha, 'ND', (a.monto_total)::numeric
         FROM public.cc_ajustes a WHERE a.cliente_id = $1 AND a.tipo = 'ND'
@@ -192,7 +199,7 @@ export class EstadoCuentaService {
       SELECT
         COALESCE(SUM(CASE WHEN tipo = 'CARGO'  THEN amt ELSE 0 END),0)::numeric(18,4) AS total_cargos,
         COALESCE(SUM(CASE WHEN tipo = 'ND'     THEN amt ELSE 0 END),0)::numeric(18,4) AS total_nd,
-        COALESCE(SUM(CASE WHEN tipo = 'PAGO_C1' THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_pagos_c1, -- positivo en salida
+        COALESCE(SUM(CASE WHEN tipo = 'PAGO_C1' THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_pagos_c1,
         COALESCE(SUM(CASE WHEN tipo = 'PAGO_C2' THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_pagos_c2,
         COALESCE(SUM(CASE WHEN tipo = 'NC'     THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_nc,
         COALESCE(SUM(amt),0)::numeric(18,4) AS neto_periodo
