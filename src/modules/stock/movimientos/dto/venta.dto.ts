@@ -26,6 +26,10 @@ export class VentaLineaDto {
 }
 
 export class RegistrarVentaDto {
+  @IsInt()
+  @Min(1)
+  almacen_origen_id: number;
+  
   @IsOptional()
   @IsString()
   fecha?: string; // ISO

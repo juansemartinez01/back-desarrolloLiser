@@ -34,7 +34,7 @@ export class VentasService {
         qr.manager.create(MovimientoStock, {
           tipo: MovimientoTipo.VENTA,
           fecha,
-          almacen_origen_id: null, // se usa por detalle
+          almacen_origen_id: dto.almacen_origen_id, // se usa por detalle
           almacen_destino_id: null,
           referencia_tipo: 'VENTA',
           referencia_id: dto.referencia_id ?? null,
