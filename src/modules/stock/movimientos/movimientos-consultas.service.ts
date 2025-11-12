@@ -307,90 +307,95 @@ export class MovimientosConsultasService {
     };
   }
 
-  async egresosPorProducto(q: QueryEgresosProductoDto) {
-    const page = q.page ?? 1;
-    const limit = q.limit ?? 50;
-    const offset = (page - 1) * limit;
+  
 
-    const params: any = {
-      desde: new Date(q.desde),
-      hasta: new Date(q.hasta),
-    };
+async egresosPorProducto(q: QueryEgresosProductoDto) {
+  const page = q.page ?? 1;
+  const limit = q.limit ?? 50;
+  const offset = (page - 1) * limit;
 
-    // Salidas de stock: efecto = -1
-    let where = `
-    m.fecha >= :desde
+  const params: any = {
+    tipo: MovimientoTipo.TRANSFERENCIA,    // 👈 SOLO transferencias
+    desde: new Date(q.desde),
+    hasta: new Date(q.hasta),
+  };
+
+  // Salidas de stock: efecto = -1, sólo transferencias
+  let where = `
+    m.tipo = :tipo
+    AND m.fecha >= :desde
     AND m.fecha < :hasta
     AND d.efecto = -1
   `;
 
-    // EGRESO → usa almacen_origen_id
-    if (q.almacen_id) {
-      where += ' AND m.almacen_origen_id = :alm';
-      params.alm = q.almacen_id;
-    }
-
-    if (q.producto_id) {
-      where += ' AND d.producto_id = :pid';
-      params.pid = q.producto_id;
-    }
-
-    // listado agregado por producto + almacén
-    const listQb = this.ds
-      .createQueryBuilder()
-      .from('stk_movimientos_det', 'd')
-      .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
-      .innerJoin('stk_productos', 'p', 'p.id = d.producto_id')
-      .select([
-        'd.producto_id                         AS producto_id',
-        'p.nombre                              AS producto_nombre',
-        'p.codigo_comercial                    AS producto_codigo_comercial',
-        'p.unidad_id                           AS unidad_id',
-        'm.almacen_origen_id                   AS almacen_id',
-        'SUM(d.cantidad)                       AS cantidad_egresada',
-        'COUNT(DISTINCT m.id)                  AS cantidad_movimientos',
-      ])
-      .where(where, params)
-      .groupBy('d.producto_id')
-      .addGroupBy('p.nombre')
-      .addGroupBy('p.codigo_comercial')
-      .addGroupBy('p.unidad_id')
-      .addGroupBy('m.almacen_origen_id')
-      .orderBy('cantidad_egresada', 'DESC')
-      .limit(limit)
-      .offset(offset);
-
-    const raw = await listQb.getRawMany();
-
-    // total de grupos (producto + almacén)
-    const totalRow = await this.ds
-      .createQueryBuilder()
-      .from('stk_movimientos_det', 'd')
-      .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
-      .where(where, params)
-      .select(
-        `COUNT(DISTINCT d.producto_id::text || '-' || COALESCE(m.almacen_origen_id::text,''))`,
-        'c',
-      )
-      .getRawOne();
-
-    const total = Number(totalRow?.c || 0);
-
-    return {
-      data: raw.map((r: any) => ({
-        producto_id: Number(r.producto_id),
-        producto_nombre: r.producto_nombre,
-        producto_codigo_comercial: r.producto_codigo_comercial,
-        unidad_id: r.unidad_id ? Number(r.unidad_id) : null,
-        almacen_id: r.almacen_id ? Number(r.almacen_id) : null,
-        cantidad_egresada: Number(r.cantidad_egresada),
-        cantidad_movimientos: Number(r.cantidad_movimientos),
-      })),
-      total,
-      page,
-      limit,
-      desde: q.desde,
-      hasta: q.hasta,
-    };
+  // EGRESO → usa almacen_origen_id
+  if (q.almacen_id) {
+    where += ' AND m.almacen_origen_id = :alm';
+    params.alm = q.almacen_id;
   }
+
+  if (q.producto_id) {
+    where += ' AND d.producto_id = :pid';
+    params.pid = q.producto_id;
+  }
+
+  // listado agregado por producto + almacén origen
+  const listQb = this.ds
+    .createQueryBuilder()
+    .from('stk_movimientos_det', 'd')
+    .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
+    .innerJoin('stk_productos', 'p', 'p.id = d.producto_id')
+    .select([
+      'd.producto_id                         AS producto_id',
+      'p.nombre                              AS producto_nombre',
+      'p.codigo_comercial                    AS producto_codigo_comercial',
+      'p.unidad_id                           AS unidad_id',
+      'm.almacen_origen_id                   AS almacen_id',
+      'SUM(d.cantidad)                       AS cantidad_egresada',
+      'COUNT(DISTINCT m.id)                  AS cantidad_movimientos',
+    ])
+    .where(where, params)
+    .groupBy('d.producto_id')
+    .addGroupBy('p.nombre')
+    .addGroupBy('p.codigo_comercial')
+    .addGroupBy('p.unidad_id')
+    .addGroupBy('m.almacen_origen_id')
+    .orderBy('cantidad_egresada', 'DESC')
+    .limit(limit)
+    .offset(offset);
+
+  const raw = await listQb.getRawMany();
+
+  // total de grupos (producto + almacén origen)
+  const totalRow = await this.ds
+    .createQueryBuilder()
+    .from('stk_movimientos_det', 'd')
+    .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
+    .where(where, params)
+    .select(
+      `COUNT(DISTINCT d.producto_id::text || '-' || COALESCE(m.almacen_origen_id::text,''))`,
+      'c',
+    )
+    .getRawOne();
+
+  const total = Number(totalRow?.c || 0);
+
+  return {
+    data: raw.map((r: any) => ({
+      producto_id: Number(r.producto_id),
+      producto_nombre: r.producto_nombre,
+      producto_codigo_comercial: r.producto_codigo_comercial,
+      unidad_id: r.unidad_id ? Number(r.unidad_id) : null,
+      almacen_id: r.almacen_id ? Number(r.almacen_id) : null,
+      cantidad_egresada: Number(r.cantidad_egresada),
+      cantidad_movimientos: Number(r.cantidad_movimientos),
+    })),
+    total,
+    page,
+    limit,
+    desde: q.desde,
+    hasta: q.hasta,
+  };
+}
+
 }
