@@ -7,6 +7,11 @@ import { QueryVentasProductoDto } from './dto/query-ventas-producto.dto';
 export class MovimientosConsultasController {
   constructor(private readonly service: MovimientosConsultasService) {}
 
+  @Get('ventas-por-producto')
+  async ventasPorProducto(@Query() q: QueryVentasProductoDto) {
+    return this.service.ventasPorProducto(q);
+  }
+  
   // GET /stock/movimientos?tipo=...&producto_id=...&page=1&limit=50&...
   @Get()
   async listar(@Query() q: QueryMovimientosDto) {
@@ -17,10 +22,5 @@ export class MovimientosConsultasController {
   @Get(':id')
   async detalle(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.detalle(id);
-  }
-
-  @Get('ventas-por-producto')
-  async ventasPorProducto(@Query() q: QueryVentasProductoDto) {
-    return this.service.ventasPorProducto(q);
   }
 }
