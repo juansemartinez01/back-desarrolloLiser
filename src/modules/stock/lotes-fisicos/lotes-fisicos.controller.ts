@@ -6,6 +6,11 @@ import { QueryLotesFisicosDto } from './dto/query-lotes-fisicos.dto';
 export class LotesFisicosController {
   constructor(private readonly service: LotesFisicosService) {}
 
+  @Get('fisicos/sin-contable')
+  async listarFisicosSinContable() {
+    return this.service.listarFisicosSinContable();
+  }
+  
   @Get()
   async listar(@Query() q: QueryLotesFisicosDto) {
     return this.service.listar(q);
@@ -14,10 +19,5 @@ export class LotesFisicosController {
   @Get(':id')
   async detalle(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.detalle(id);
-  }
-
-  @Get('fisicos/sin-contable')
-  async listarFisicosSinContable() {
-    return this.service.listarFisicosSinContable();
   }
 }
