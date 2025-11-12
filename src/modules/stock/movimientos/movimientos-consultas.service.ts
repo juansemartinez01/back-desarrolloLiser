@@ -4,6 +4,7 @@ import { MovimientoStock } from './entities/movimiento-stock.entity';
 import { QueryMovimientosDto } from './dto/query-movimientos.dto';
 import { QueryVentasProductoDto } from './dto/query-ventas-producto.dto';
 import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
+import { QueryIngresosProductoDto } from './dto/query-ingresos-producto.dto';
 
 @Injectable()
 export class MovimientosConsultasService {
@@ -218,6 +219,94 @@ export class MovimientosConsultasService {
         unidad_id: r.unidad_id ? Number(r.unidad_id) : null,
         almacen_id: r.almacen_id ? Number(r.almacen_id) : null,
         cantidad_vendida: Number(r.cantidad_vendida),
+        cantidad_movimientos: Number(r.cantidad_movimientos),
+      })),
+      total,
+      page,
+      limit,
+      desde: q.desde,
+      hasta: q.hasta,
+    };
+  }
+
+  async ingresosPorProducto(q: QueryIngresosProductoDto) {
+    const page = q.page ?? 1;
+    const limit = q.limit ?? 50;
+    const offset = (page - 1) * limit;
+
+    const params: any = {
+      tipo: MovimientoTipo.INGRESO,
+      desde: new Date(q.desde),
+      hasta: new Date(q.hasta),
+    };
+
+    let where = `
+      m.tipo = :tipo
+      AND m.fecha >= :desde
+      AND m.fecha < :hasta
+      AND d.efecto = 1
+    `;
+
+    if (q.almacen_id) {
+      // ENTRADA → almacén_destino_id
+      where += ' AND m.almacen_destino_id = :alm';
+      params.alm = q.almacen_id;
+    }
+
+    if (q.producto_id) {
+      where += ' AND d.producto_id = :pid';
+      params.pid = q.producto_id;
+    }
+
+    // listado agregado
+    const listQb = this.ds
+      .createQueryBuilder()
+      .from('stk_movimientos_det', 'd')
+      .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
+      .innerJoin('stk_productos', 'p', 'p.id = d.producto_id')
+      .select([
+        'd.producto_id                         AS producto_id',
+        'p.nombre                              AS producto_nombre',
+        'p.codigo_comercial                    AS producto_codigo_comercial',
+        'p.unidad_id                           AS unidad_id',
+        'm.almacen_destino_id                  AS almacen_id',
+        'SUM(d.cantidad)                       AS cantidad_ingresada',
+        'COUNT(DISTINCT m.id)                  AS cantidad_movimientos',
+      ])
+      .where(where, params)
+      .groupBy('d.producto_id')
+      .addGroupBy('p.nombre')
+      .addGroupBy('p.codigo_comercial')
+      .addGroupBy('p.unidad_id')
+      .addGroupBy('m.almacen_destino_id')
+      .orderBy('cantidad_ingresada', 'DESC')
+      .limit(limit)
+      .offset(offset);
+
+    const raw = await listQb.getRawMany();
+
+    // total de grupos (producto + almacén)
+    const totalRow = await this.ds
+      .createQueryBuilder()
+      .from('stk_movimientos_det', 'd')
+      .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
+      .where(where, params)
+      .select(
+        `COUNT(DISTINCT d.producto_id::text || '-' || COALESCE(m.almacen_destino_id::text,''))`,
+        'c',
+      )
+      .getRawOne();
+
+    const total = Number(totalRow?.c || 0);
+
+    return {
+      data: raw.map((r: any) => ({
+        producto_id: Number(r.producto_id),
+        producto_nombre: r.producto_nombre,
+        producto_codigo_comercial: r.producto_codigo_comercial,
+        unidad_id: r.unidad_id ? Number(r.unidad_id) : null,
+        almacen_id: r.almacen_id ? Number(r.almacen_id) : null,
+        cantidad_ingresada: Number(r.cantidad_ingresada),
         cantidad_movimientos: Number(r.cantidad_movimientos),
       })),
       total,

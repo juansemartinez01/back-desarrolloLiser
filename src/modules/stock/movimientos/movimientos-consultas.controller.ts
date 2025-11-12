@@ -2,6 +2,7 @@ import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { MovimientosConsultasService } from './movimientos-consultas.service';
 import { QueryMovimientosDto } from './dto/query-movimientos.dto';
 import { QueryVentasProductoDto } from './dto/query-ventas-producto.dto';
+import { QueryIngresosProductoDto } from './dto/query-ingresos-producto.dto';
 
 @Controller('stock/movimientos')
 export class MovimientosConsultasController {
@@ -11,7 +12,12 @@ export class MovimientosConsultasController {
   async ventasPorProducto(@Query() q: QueryVentasProductoDto) {
     return this.service.ventasPorProducto(q);
   }
-  
+
+  @Get('ingresos-por-producto')
+  async ingresosPorProducto(@Query() q: QueryIngresosProductoDto) {
+    return this.service.ingresosPorProducto(q);
+  }
+
   // GET /stock/movimientos?tipo=...&producto_id=...&page=1&limit=50&...
   @Get()
   async listar(@Query() q: QueryMovimientosDto) {
