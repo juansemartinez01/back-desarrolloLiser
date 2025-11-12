@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { QueryStockActualDto } from '../stock-actual/dto/query-stock-actual.dto';
 import { QueryKardexDto } from '../dto/query-kardex.dto';
+import { QueryLotesPorProductoDto } from './dto/query-lotes-por-producto.dto';
 
 
 function toDateOrUndefined(v?: string): Date | undefined { return v ? new Date(v) : undefined; }
@@ -218,5 +219,105 @@ export class StockQueriesService {
     }));
 
     return { data, total, page, limit, entrada, salida, saldo };
+  }
+
+  /**
+   * Lotes de un producto con su distribución por almacén.
+   * - Sólo lotes con cantidad_disponible > 0
+   * - Si viene almacen_id, exige que el lote tenga stock disponible en ese almacén
+   * - Paginado y orden por fecha_remito
+   */
+  async lotesPorProducto(q: QueryLotesPorProductoDto) {
+    const page = Math.max(1, Number(q.page ?? 1));
+    const limit = Math.min(500, Math.max(1, Number(q.limit ?? 50)));
+    const offset = (page - 1) * limit;
+    const order = (q.order ?? 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+    // Armamos condiciones y parámetros en forma indexada (para evitar inyección y reutilizar)
+    const whereParts: string[] = [
+      `l.producto_id = $1`,
+      `l.cantidad_disponible > 0`,
+    ];
+    const params: any[] = [q.producto_id];
+
+    // Filtro opcional por almacén: debe existir distribución disponible en ese almacén
+    if (q.almacen_id) {
+      whereParts.push(`
+        EXISTS (
+          SELECT 1
+          FROM public.stk_lote_almacen la2
+          WHERE la2.lote_id = l.id
+            AND la2.almacen_id = $2
+            AND la2.cantidad_disponible > 0
+        )
+      `);
+      params.push(q.almacen_id);
+    }
+
+    const where = whereParts.join(' AND ');
+    const idxLimit = params.length + 1;
+    const idxOffset = params.length + 2;
+
+    // Consulta principal: usa un CTE que agrega la distribución por almacén (solo disponibles > 0)
+    const sql = `
+      WITH dist AS (
+        SELECT
+          la.lote_id,
+          jsonb_agg(
+            jsonb_build_object(
+              'almacen_id', la.almacen_id,
+              'cantidad', la.cantidad_disponible
+            )
+            ORDER BY la.almacen_id
+          ) AS distribucion
+        FROM public.stk_lote_almacen la
+        WHERE la.cantidad_disponible > 0
+        GROUP BY la.lote_id
+      )
+      SELECT
+        l.id                    AS lote_id,
+        l.producto_id           AS producto_id,
+        l.fecha_remito          AS fecha_remito,
+        l.lote_tipo             AS lote_tipo,
+        l.cantidad_inicial      AS cantidad_inicial,
+        l.cantidad_disponible   AS cantidad_disponible,
+        d.distribucion          AS distribucion
+      FROM public.stk_lotes l
+      LEFT JOIN dist d ON d.lote_id = l.id
+      WHERE ${where}
+      ORDER BY l.fecha_remito ${order}, l.id ${order}
+      LIMIT $${idxLimit} OFFSET $${idxOffset};
+    `;
+
+    const countSql = `
+      SELECT COUNT(1)::int AS c
+      FROM public.stk_lotes l
+      WHERE ${where};
+    `;
+
+    const [rows, total] = await Promise.all([
+      this.ds.query(sql, [...params, limit, offset]),
+      this.ds
+        .query(countSql, params)
+        .then((r) => (r?.[0]?.c ? Number(r[0].c) : 0)),
+    ]);
+
+    // Normalizamos cantidades a number y distribuimos estructura
+    const data = (rows as any[]).map((r) => ({
+      lote_id: r.lote_id,
+      producto_id: Number(r.producto_id),
+      fecha_remito: r.fecha_remito,
+      lote_tipo: r.lote_tipo ? Number(r.lote_tipo) : null,
+      cantidad_inicial: Number(r.cantidad_inicial ?? 0),
+      cantidad_disponible: Number(r.cantidad_disponible ?? 0),
+      distribucion: Array.isArray(r.distribucion)
+        ? r.distribucion.map((x: any) => ({
+            almacen_id: Number(x.almacen_id),
+            cantidad: Number(x.cantidad ?? 0),
+          }))
+        : [],
+    }));
+
+    return { data, total, page, limit };
   }
 }
