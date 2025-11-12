@@ -57,6 +57,11 @@ export class CreateAlmacenDto {
   @IsOptional()
   @IsBoolean()
   activo?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  almacen_id: number;
 }
 
 export class UpdateAlmacenDto {
@@ -131,8 +136,5 @@ export class QueryAlmacenDto {
   @Min(1)
   limit?: number;
 
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  almacen_id: number;
+  
 }
