@@ -33,7 +33,7 @@ export class EstadoCuentaService {
           WHERE cliente_id = $1 AND fecha < $2
         ),
         tot_pagos AS (
-          SELECT COALESCE(SUM(importe_total),0)::numeric AS s
+          SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_pagos
           WHERE cliente_id = $1 AND fecha < $2
         ),
@@ -76,7 +76,7 @@ export class EstadoCuentaService {
     // Convenciones:
     //  - CARGO:        +importe
     //  - ND:           +monto_total
-    //  - PAGO_C1/C2:   -importe_total
+    //  - PAGO_C1/C2:   -importe
     //  - NC:           -monto_total
     // Se arma una UNION ALL con una vista "mov(cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed)"
     const idxLimit = p++;
@@ -106,7 +106,7 @@ export class EstadoCuentaService {
           p.id::text AS origen_id,
           COALESCE(p.referencia_externa,'') AS ref,
           p.observacion,
-          (-p.importe_total)::numeric(18,4) AS importe_signed
+          (-p.importe)::numeric(18,4) AS importe_signed
         FROM public.cc_pagos p
         WHERE p.cliente_id = $1
 
@@ -184,7 +184,7 @@ export class EstadoCuentaService {
 
         SELECT p.fecha,
               CASE WHEN p.cuenta = 'CUENTA1'::cc_pago_cuenta THEN 'PAGO_C1' ELSE 'PAGO_C2' END,
-              (-p.importe_total)::numeric
+              (-p.importe)::numeric
         FROM public.cc_pagos p
         WHERE p.cliente_id = $1
 
