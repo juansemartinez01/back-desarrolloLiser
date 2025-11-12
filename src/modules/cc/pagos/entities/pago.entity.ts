@@ -1,8 +1,8 @@
 import { Column, Entity, Index, ManyToOne, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
-import { CcCliente } from './cliente.entity';
-import { PagoCuenta } from '../enums/pago-cuenta.enum';
-import { CcPagoDet } from './pago-det.entity';
+import { BaseEntity } from '../../../../entities/base.entity';
+import { CcCliente } from '../../entities/cliente.entity';
+import { PagoCuenta } from '../../enums/pago-cuenta.enum';
+import { CcPagoDet } from '../../pagos/entities/pago-det.entity';
 
 @Entity('cc_pagos')
 export class CcPago extends BaseEntity {

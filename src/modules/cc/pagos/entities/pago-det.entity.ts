@@ -1,7 +1,7 @@
 import { Column, Entity, Index, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
+import { BaseEntity } from '../../../../entities/base.entity';
 import { CcPago } from './pago.entity';
-import { CcCargo } from './cargo.entity';
+import { CcCargo } from '../../cargos/entities/cargo.entity';
 
 @Entity('cc_pagos_det')
 export class CcPagoDet extends BaseEntity {

@@ -1,7 +1,7 @@
 import { Column, Entity, Index, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
-import { CcCliente } from './cliente.entity';
-import { AjusteTipo } from '../enums/ajuste-tipo.enum';
+import { BaseEntity } from '../../../../entities/base.entity';
+import { CcCliente } from '../../entities/cliente.entity';
+import { AjusteTipo } from '../../enums/ajuste-tipo.enum';
 
 @Entity('cc_ajustes')
 export class CcAjuste extends BaseEntity {

@@ -5,6 +5,7 @@ import configuration from './common/config/configuration';
 import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
 import { StockModule } from './modules/stock/stock.module';
+import { CcModule } from './modules/cc/cc.module';
 //import { OutboxModule } from './outbox/outbox.module';
 
 @Module({
@@ -22,6 +23,7 @@ import { StockModule } from './modules/stock/stock.module';
     }),
     DatabaseModule,
     StockModule,
+    CcModule,
     //OutboxModule,
   ],
   controllers: [HealthController],
