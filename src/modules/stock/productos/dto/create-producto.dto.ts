@@ -60,7 +60,6 @@ export class CreateProductoDto {
   empresa?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  codigo_comercial?: string;
+  @IsInt()
+  proveedor_id?: number | null;
 }

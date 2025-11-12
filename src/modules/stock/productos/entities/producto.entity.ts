@@ -73,4 +73,8 @@ export class Producto {
   @ManyToOne(() => TipoProducto, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'tipo_producto_id' })
   tipo: TipoProducto;
+
+  @Index('ix_producto_proveedor')
+  @Column({ type: 'int', nullable: true })
+  proveedor_id?: number | null;
 }

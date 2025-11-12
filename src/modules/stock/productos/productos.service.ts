@@ -10,6 +10,73 @@ import { CreateProductoDto } from './dto/create-producto.dto';
 import { UpdateProductoDto } from './dto/update-producto.dto';
 import { QueryProductosDto } from './dto/query-productos.dto';
 
+import { TipoProducto } from './entities/tipo-producto.entity';
+
+// Quita acentos de forma simple
+function quitarAcentos(txt: string): string {
+  return txt
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/gi, (m) => (m === 'ñ' ? 'n' : 'N'));
+}
+
+function buildTipoPrefix(tipoNombre: string): string {
+  const t = quitarAcentos(tipoNombre).toUpperCase().trim();
+  if (!t) return 'XXX';
+  return t.slice(0, 3); // FRU, VER, CON, etc.
+}
+
+function buildNombreCode(nombre: string): string {
+  const STOP = new Set(['DE', 'DEL', 'LA', 'EL', 'LOS', 'LAS', 'Y']);
+  const base = quitarAcentos(nombre).toUpperCase();
+  const words = base.split(/\s+/).filter(Boolean).filter((w) => !STOP.has(w));
+
+  const parts: string[] = [];
+  for (const w of words) {
+    if (/^\d+$/.test(w)) {
+      // sólo números -> 2 dígitos
+      parts.push(w.padStart(2, '0'));
+    } else {
+      parts.push(w.slice(0, 4)); // primeras 4 letras
+    }
+  }
+
+  // Máx ~20 chars para que no se vuelva infinito
+  return parts.join('').slice(0, 20);
+}
+
+function buildProveedorCode(proveedorId?: number | null): string {
+  const id = proveedorId ?? 0;
+  return 'P' + id.toString().padStart(4, '0'); // P0012
+}
+
+function buildEmpresaCode(empresa?: string | null): string {
+  if (!empresa) return 'XXXX';
+  const e = quitarAcentos(empresa).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!e) return 'XXXX';
+  return e.slice(0, 4); // GLAD, SYRU, etc.
+}
+
+function buildInternoCode(idInterno?: number | null): string {
+  const id = idInterno ?? 0;
+  return id.toString().padStart(5, '0'); // 00102
+}
+
+export function generarCodigoComercial(opts: {
+  tipoNombre: string;
+  nombreProducto: string;
+  proveedorId?: number | null;
+  empresa?: string | null;
+  idInterno?: number | null;
+}): string {
+  const tipo = buildTipoPrefix(opts.tipoNombre);
+  const nombre = buildNombreCode(opts.nombreProducto);
+  const prov = buildProveedorCode(opts.proveedorId);
+  const emp = buildEmpresaCode(opts.empresa);
+  const interno = buildInternoCode(opts.idInterno);
+
+  return `${tipo}-${nombre}-${prov}-${emp}-${interno}`;
+}
 @Injectable()
 export class ProductosService {
   constructor(private readonly ds: DataSource) {}
@@ -21,6 +88,22 @@ export class ProductosService {
 
   async create(dto: CreateProductoDto) {
     const repo = this.ds.getRepository(Producto);
+    const tipoRepo = this.ds.getRepository(TipoProducto);
+
+    const tipo = await tipoRepo.findOne({
+      where: { id: dto.tipo_producto_id },
+    });
+    if (!tipo) {
+      throw new BadRequestException('Tipo de producto inválido');
+    }
+    // Generar código comercial
+    const codigo = generarCodigoComercial({
+      tipoNombre: tipo.nombre,
+      nombreProducto: dto.nombre,
+      proveedorId: dto.proveedor_id ?? null,
+      empresa: dto.empresa ?? null,
+      idInterno: dto.id_interno ?? null,
+    });
 
     const prod = repo.create({
       nombre: dto.nombre,
@@ -36,7 +119,7 @@ export class ProductosService {
       precio_vacio: this.toDecimal4(dto.precio_vacio),
       id_interno: dto.id_interno ?? null,
       empresa: dto.empresa ?? null,
-      codigo_comercial: dto.codigo_comercial ?? null,
+      codigo_comercial: codigo,
     });
 
     try {
@@ -102,8 +185,7 @@ export class ProductosService {
       prod.precio_vacio = this.toDecimal4(dto.precio_vacio);
     if (dto.id_interno !== undefined) prod.id_interno = dto.id_interno;
     if (dto.empresa !== undefined) prod.empresa = dto.empresa;
-    if (dto.codigo_comercial !== undefined)
-      prod.codigo_comercial = dto.codigo_comercial;
+    
 
     prod.updated_at = new Date();
 
