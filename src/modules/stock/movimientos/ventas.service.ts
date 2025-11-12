@@ -243,58 +243,123 @@ export class VentasService {
 }
 
 // helpers/ventas.helpers.ts (o en el mismo service, arriba del @Injectable)
+// helpers/ventas.helpers.ts
 function generarReferenciaVenta(
-  referenciaLibre: string | undefined | null,
-  fechaIso?: string,
+  referenciaLibre?: string | null,
+  fechaFallbackIso?: string, // opcional, por si hay que usar fallback
 ): string {
   const PREFIX = 'VTA';
 
-  // 1) Sacar la parte de nombre antes del primer " - "
-  const parteNombre =
-    referenciaLibre?.split('-')[0].trim() ?? 'SIN NOMBRE';
+  // ---------------------------------
+  // 1) Nombre → VALFRITADRI
+  // ---------------------------------
+  let parteNombre = 'SIN NOMBRE';
 
-  // 2) Quitar acentos, símbolos raros, dejar solo letras y espacios
+  if (referenciaLibre) {
+    const partes = referenciaLibre.split(' - ');
+    if (partes[0]) {
+      parteNombre = partes[0].trim();
+    }
+  }
+
   const soloLetras = parteNombre
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // acentos
-    .replace(/[^A-Za-z\s]/g, ' ') // fuera letras → espacio
+    .replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .replace(/[^A-Za-z\s]/g, ' ') // deja solo letras y espacios
     .replace(/\s+/g, ' ')
     .trim()
     .toUpperCase();
 
-  // 3) Armar código tipo VALFRITADRI (tomando hasta 3 letras de cada palabra)
-  const partes = soloLetras.split(' ').filter(Boolean);
+  const palabras = soloLetras.split(' ').filter(Boolean);
   const trozos: string[] = [];
 
-  for (const p of partes) {
+  for (const p of palabras) {
     trozos.push(p.slice(0, 3)); // primeras 3 letras de cada palabra
-    if (trozos.join('').length >= 12) break; // máx 12 chars
+    if (trozos.join('').length >= 12) break;
   }
 
   let codNombre = trozos.join('') || 'SINNOM';
-  codNombre = codNombre.slice(0, 12); // por las dudas
+  codNombre = codNombre.slice(0, 12);
 
-  // 4) Fecha/hora (usamos la fecha del DTO, no lo que venga en el string)
-  const fecha = fechaIso ? new Date(fechaIso) : new Date();
+  // ---------------------------------
+  // 2) Fecha y hora desde referenciaLibre
+  //    Formato esperado: " ... - 12 nov 2025, 14:47:50"
+  // ---------------------------------
+  let fechaStr: string | undefined;
+  let horaStr: string | undefined;
 
-  const dd = String(fecha.getDate()).padStart(2, '0');
-  const mm = String(fecha.getMonth() + 1).padStart(2, '0');
-  const yyyy = fecha.getFullYear();
+  if (referenciaLibre) {
+    const partes = referenciaLibre.split(' - ');
+    const resto = partes[1]?.trim() || ''; // "12 nov 2025, 14:47:50"
 
-  const hh = String(fecha.getHours()).padStart(2, '0');
-  const mi = String(fecha.getMinutes()).padStart(2, '0');
-  const ss = String(fecha.getSeconds()).padStart(2, '0');
+    if (resto) {
+      const [fechaTextoRaw, horaTextoRaw] = resto.split(',').map((x) => x.trim());
+      const fechaTexto = fechaTextoRaw || '';
+      const horaTexto = horaTextoRaw || '';
 
-  const fechaStr = `${dd}/${mm}/${yyyy}`;
-  const horaStr = `${hh}:${mi}:${ss}`;
+      const meses: Record<string, string> = {
+        ene: '01',
+        feb: '02',
+        mar: '03',
+        abr: '04',
+        may: '05',
+        jun: '06',
+        jul: '07',
+        ago: '08',
+        sep: '09',
+        oct: '10',
+        nov: '11',
+        dic: '12',
+      };
 
-  // 5) Número aleatorio de 12 dígitos
+      if (fechaTexto && horaTexto) {
+        // "12 nov 2025"
+        const [ddStrRaw, mesStrRaw, yyyyStrRaw] = fechaTexto.split(/\s+/);
+        const ddStr = ddStrRaw || '';
+        const mesStr = (mesStrRaw || '').toLowerCase();
+        const yyyyStr = yyyyStrRaw || '';
+
+        const mesNum = meses[mesStr];
+
+        if (
+          mesNum &&
+          /^\d{1,2}$/.test(ddStr) &&
+          /^\d{4}$/.test(yyyyStr) &&
+          /^\d{2}:\d{2}:\d{2}$/.test(horaTexto)
+        ) {
+          const dd = ddStr.padStart(2, '0');
+          fechaStr = `${dd}/${mesNum}/${yyyyStr}`; // DD/MM/YYYY
+          horaStr = horaTexto; // HH:mm:ss tal cual vino
+        }
+      }
+    }
+  }
+
+  // ---------------------------------
+  // 3) Fallback de fecha/hora si no se pudo parsear de referenciaLibre
+  // ---------------------------------
+  if (!fechaStr || !horaStr) {
+    const baseDate = fechaFallbackIso ? new Date(fechaFallbackIso) : new Date();
+    const dd = String(baseDate.getDate()).padStart(2, '0');
+    const mm = String(baseDate.getMonth() + 1).padStart(2, '0');
+    const yyyy = baseDate.getFullYear();
+    const hh = String(baseDate.getHours()).padStart(2, '0');
+    const mi = String(baseDate.getMinutes()).padStart(2, '0');
+    const ss = String(baseDate.getSeconds()).padStart(2, '0');
+
+    fechaStr = `${dd}/${mm}/${yyyy}`;
+    horaStr = `${hh}:${mi}:${ss}`;
+  }
+
+  // ---------------------------------
+  // 4) Número aleatorio de 12 dígitos
+  // ---------------------------------
   const aleatorio = Math.floor(Math.random() * 1e12)
     .toString()
     .padStart(12, '0');
 
-  // Resultado final:
   // VTA-VALFRITADRI-12/11/2025-14:47:50-004586582153
   return `${PREFIX}-${codNombre}-${fechaStr}-${horaStr}-${aleatorio}`;
 }
+
 
