@@ -22,6 +22,12 @@ export class VentasService {
       }
     });
 
+    const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
+    const refCodificada = generarReferenciaVenta(
+      dto.referencia_id,
+      fecha.toISOString(),
+    );
+
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -37,7 +43,7 @@ export class VentasService {
           almacen_origen_id: dto.almacen_origen_id, // se usa por detalle
           almacen_destino_id: null,
           referencia_tipo: 'VENTA',
-          referencia_id: dto.referencia_id ?? null,
+          referencia_id: refCodificada ?? null,
           observacion: dto.observacion ?? null,
         }),
       );
@@ -235,3 +241,60 @@ export class VentasService {
     }
   }
 }
+
+// helpers/ventas.helpers.ts (o en el mismo service, arriba del @Injectable)
+function generarReferenciaVenta(
+  referenciaLibre: string | undefined | null,
+  fechaIso?: string,
+): string {
+  const PREFIX = 'VTA';
+
+  // 1) Sacar la parte de nombre antes del primer " - "
+  const parteNombre =
+    referenciaLibre?.split('-')[0].trim() ?? 'SIN NOMBRE';
+
+  // 2) Quitar acentos, símbolos raros, dejar solo letras y espacios
+  const soloLetras = parteNombre
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // acentos
+    .replace(/[^A-Za-z\s]/g, ' ') // fuera letras → espacio
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+
+  // 3) Armar código tipo VALFRITADRI (tomando hasta 3 letras de cada palabra)
+  const partes = soloLetras.split(' ').filter(Boolean);
+  const trozos: string[] = [];
+
+  for (const p of partes) {
+    trozos.push(p.slice(0, 3)); // primeras 3 letras de cada palabra
+    if (trozos.join('').length >= 12) break; // máx 12 chars
+  }
+
+  let codNombre = trozos.join('') || 'SINNOM';
+  codNombre = codNombre.slice(0, 12); // por las dudas
+
+  // 4) Fecha/hora (usamos la fecha del DTO, no lo que venga en el string)
+  const fecha = fechaIso ? new Date(fechaIso) : new Date();
+
+  const dd = String(fecha.getDate()).padStart(2, '0');
+  const mm = String(fecha.getMonth() + 1).padStart(2, '0');
+  const yyyy = fecha.getFullYear();
+
+  const hh = String(fecha.getHours()).padStart(2, '0');
+  const mi = String(fecha.getMinutes()).padStart(2, '0');
+  const ss = String(fecha.getSeconds()).padStart(2, '0');
+
+  const fechaStr = `${dd}/${mm}/${yyyy}`;
+  const horaStr = `${hh}:${mi}:${ss}`;
+
+  // 5) Número aleatorio de 12 dígitos
+  const aleatorio = Math.floor(Math.random() * 1e12)
+    .toString()
+    .padStart(12, '0');
+
+  // Resultado final:
+  // VTA-VALFRITADRI-12/11/2025-14:47:50-004586582153
+  return `${PREFIX}-${codNombre}-${fechaStr}-${horaStr}-${aleatorio}`;
+}
+
