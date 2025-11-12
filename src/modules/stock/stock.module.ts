@@ -39,6 +39,7 @@ import { LotesFisicosService } from './lotes-fisicos/lotes-fisicos.service';
 import { LotesFisicosController } from './lotes-fisicos/lotes-fisicos.controller';
 import { VentasController } from './movimientos/ventas.controller';
 import { VentasService } from './movimientos/ventas.service';
+import { MovimientosModule } from './movimientos/movimientos.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { VentasService } from './movimientos/ventas.service';
       LoteContable,
     ]),
     ProductosModule,
+    MovimientosModule,
   ],
   controllers: [
     StockController,
@@ -85,7 +87,7 @@ import { VentasService } from './movimientos/ventas.service';
     UnidadesService,
     TiposProductoService,
     LotesContablesService,
-    LotesFisicosService
+    LotesFisicosService,
   ],
   exports: [RemitosService, StockQueriesService, VentasService, EstadosService],
 })
