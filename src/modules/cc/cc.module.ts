@@ -19,8 +19,19 @@ import { ReportesService } from './reportes.service';
   imports: [
     TypeOrmModule.forFeature([CcCliente, CcCargo, CcPago, CcPagoDet, CcAjuste]),
   ],
-  providers: [CargosService, PagosService,AjustesService,EstadoCuentaService],
-  controllers: [CargosController, PagosController,AjustesController,EstadoCuentaController],
-  exports: [EstadoCuentaService,ReportesService],
+  providers: [
+    CargosService,
+    PagosService,
+    AjustesService,
+    EstadoCuentaService,
+    ReportesService,
+  ],
+  controllers: [
+    CargosController,
+    PagosController,
+    AjustesController,
+    EstadoCuentaController,
+  ],
+  exports: [EstadoCuentaService, ReportesService],
 })
 export class CcModule {}
