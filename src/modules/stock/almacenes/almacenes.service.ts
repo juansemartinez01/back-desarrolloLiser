@@ -62,6 +62,7 @@ export class AlmacenesService {
     const a = repo.create({
       ...dto,
       activo: dto.activo ?? true,
+      
     });
     return repo.save(a);
   }
