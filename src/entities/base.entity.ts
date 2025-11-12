@@ -15,6 +15,6 @@ export abstract class BaseEntity {
   @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
 
-  @VersionColumn()
+  @VersionColumn({ default: 1, nullable: true })
   version: number;
 }
