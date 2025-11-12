@@ -10,7 +10,7 @@ export class MovimientosConsultasController {
 
   @Get('ventas-por-producto')
   async ventasPorProducto(@Query() q: QueryVentasProductoDto) {
-    return this.service.ventasPorProducto(q);
+    return this.service.getVentasPorProducto(q);
   }
 
   @Get('ingresos-por-producto')
