@@ -42,6 +42,7 @@ import { VentasService } from './movimientos/ventas.service';
 import { MovimientosModule } from './movimientos/movimientos.module';
 import { Almacen } from './almacenes/entities/almacen.entity';
 import { AlmacenesModule } from './almacenes/almacenes.module';
+import { MermasModule } from './movimientos/mermas/mermas.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { AlmacenesModule } from './almacenes/almacenes.module';
     ProductosModule,
     MovimientosModule,
     AlmacenesModule,
+    MermasModule,
   ],
   controllers: [
     StockController,
