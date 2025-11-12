@@ -186,9 +186,9 @@ export class PagosService {
         GROUP BY pago_id
       )
       SELECT
-        p.id, p.fecha, p.cliente_id, p.cuenta, p.importe_total::numeric(18,4) AS importe_total,
+        p.id, p.fecha, p.cliente_id, p.cuenta, p.importe::numeric(18,4) AS importe_total,
         COALESCE(a.aplicado,0)::numeric(18,4) AS aplicado,
-        (p.importe_total - COALESCE(a.aplicado,0))::numeric(18,4) AS sin_aplicar,
+        (p.importe - COALESCE(a.aplicado,0))::numeric(18,4) AS sin_aplicar,
         p.referencia_externa, p.observacion, p.created_at, p.updated_at
       FROM public.cc_pagos p
       LEFT JOIN aplicado a ON a.pago_id = p.id
