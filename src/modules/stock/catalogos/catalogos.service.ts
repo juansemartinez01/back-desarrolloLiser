@@ -1,7 +1,7 @@
 // src/modules/stock/catalogos/catalogos.service.ts
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { QueryCatalogoDto } from '../dto/query-catalogo.dto';
+import { QueryCatalogoDto } from './dto/query-catalogo.dto';
 
 @Injectable()
 export class CatalogosService {

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { StockLote } from './entities/stock-lote.entity';
+import { StockLote } from '../stock-actual/entities/stock-lote.entity';
 
 @Injectable()
 export class LotesService {

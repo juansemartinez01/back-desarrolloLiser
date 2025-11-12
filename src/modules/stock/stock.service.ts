@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Remito } from './entities/remito.entity';
-import { RemitoItem } from './entities/remito-item.entity';
-import { StockLote } from './entities/stock-lote.entity';
-import { LoteAlmacen } from './entities/lote-almacen.entity';
-import { MovimientoStock } from './entities/movimiento-stock.entity';
-import { MovimientoStockDetalle } from './entities/movimiento-stock-detalle.entity';
-import { StockActual } from './entities/stock-actual.entity';
+import { Remito } from './remitos/entities/remito.entity';
+import { RemitoItem } from './remitos/entities/remito-item.entity';
+import { StockLote } from './stock-actual/entities/stock-lote.entity';
+import { LoteAlmacen } from './lotes-fisicos/entities/lote-almacen.entity';
+import { MovimientoStock } from './movimientos/entities/movimiento-stock.entity';
+import { MovimientoStockDetalle } from './movimientos/entities/movimiento-stock-detalle.entity';
+import { StockActual } from './stock-actual/entities/stock-actual.entity';
 import { ConsumoPendiente } from './entities/consumo-pendiente.entity';
 
 

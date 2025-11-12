@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { RegistrarVentaDto } from './dto/venta.dto';
-import { MovimientoStock } from '../entities/movimiento-stock.entity';
-import { MovimientoStockDetalle } from '../entities/movimiento-stock-detalle.entity';
+import { MovimientoStock } from './entities/movimiento-stock.entity';
+import { MovimientoStockDetalle } from './entities/movimiento-stock-detalle.entity';
 import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
 
 @Injectable()

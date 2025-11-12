@@ -7,10 +7,10 @@ import {
   ManyToOne,
   RelationId,
 } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
-import { StockLote } from './stock-lote.entity';
-import { EmpresaFactura } from '../enums/empresa-factura.enum';
-import { LoteContableEstado } from '../enums/lote-contable-estado.enum';
+import { BaseEntity } from '../../../../entities/base.entity';
+import { StockLote } from '../../stock-actual/entities/stock-lote.entity';
+import { EmpresaFactura } from '../../enums/empresa-factura.enum';
+import { LoteContableEstado } from '../../enums/lote-contable-estado.enum';
 
 @Entity('stk_lotes_contables')
 export class LoteContable extends BaseEntity {

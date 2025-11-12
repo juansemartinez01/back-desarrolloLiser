@@ -1,9 +1,9 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, RelationId } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
-import { RemitoItem } from './remito-item.entity';
-import { LoteAlmacen } from './lote-almacen.entity';
-import { LoteTipo } from '../enums/lote-tipo.enum';
-import { LoteContable } from './lote-contable.entity';
+import { BaseEntity } from '../../../../entities/base.entity';
+import { RemitoItem } from '../../remitos/entities/remito-item.entity';
+import { LoteAlmacen } from '../../lotes-fisicos/entities/lote-almacen.entity';
+import { LoteTipo } from '../../enums/lote-tipo.enum';
+import { LoteContable } from '../../lotes-contables/entities/lote-contable.entity';
 
 @Entity('stk_lotes')
 export class StockLote extends BaseEntity {

@@ -1,5 +1,5 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
+import { BaseEntity } from '../../../../entities/base.entity';
 import { MovimientoStock } from './movimiento-stock.entity';
 
 @Entity('stk_movimientos_det')

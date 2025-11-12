@@ -1,7 +1,7 @@
 // src/modules/stock/catalogos/catalogos.controller.ts
 import { Controller, Get, Query } from '@nestjs/common';
 import { CatalogosService } from './catalogos.service';
-import { QueryCatalogoDto } from '../dto/query-catalogo.dto';
+import { QueryCatalogoDto } from './dto/query-catalogo.dto';
 
 @Controller('stock/catalogos')
 export class CatalogosController {

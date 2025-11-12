@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { FraccionamientoDto } from './dto/fraccionamiento.dto';
-import { MovimientoStock } from './entities/movimiento-stock.entity';
-import { MovimientoStockDetalle } from './entities/movimiento-stock-detalle.entity';
-import { MovimientoTipo } from './enums/movimiento-tipo.enum';
+import { MovimientoStock } from '../movimientos/entities/movimiento-stock.entity';
+import { MovimientoStockDetalle } from '../movimientos/entities/movimiento-stock-detalle.entity';
+import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
 import { FraccionamientoFactorDto } from './dto/fraccionamiento-factor.dto';
 
 @Injectable()

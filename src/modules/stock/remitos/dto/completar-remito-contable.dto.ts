@@ -10,7 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { EmpresaFactura } from '../enums/empresa-factura.enum';
+import { EmpresaFactura } from '../../enums/empresa-factura.enum';
 
 export class CompletarRemitoItemContableDto {
   @IsUUID()

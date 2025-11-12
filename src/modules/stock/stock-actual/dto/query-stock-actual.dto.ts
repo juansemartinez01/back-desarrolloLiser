@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Min } from 'class-validator';
-import { PaginationDto } from './pagination.dto';
+import { PaginationDto } from '../../dto/pagination.dto';
 
 export class QueryStockActualDto extends PaginationDto {
   @Type(() => Number)

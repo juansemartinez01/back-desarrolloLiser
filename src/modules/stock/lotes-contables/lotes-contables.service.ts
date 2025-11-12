@@ -6,8 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { LoteContable } from '../entities/lote-contable.entity';
-import { StockLote } from '../entities/stock-lote.entity';
+import { LoteContable } from './entities/lote-contable.entity';
+import { StockLote } from '../stock-actual/entities/stock-lote.entity';
 import {
   CreateLoteContableDto,
   UpdateLoteContableDto,

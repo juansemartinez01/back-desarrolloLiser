@@ -15,7 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-import { LoteTipo } from '../enums/lote-tipo.enum';
+import { LoteTipo } from '../../enums/lote-tipo.enum';
 
 export class DistribucionPorAlmacenDto {
   @IsInt()

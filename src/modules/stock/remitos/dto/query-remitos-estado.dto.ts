@@ -8,7 +8,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { PaginationDto } from './pagination.dto';
+import { PaginationDto } from '../../dto/pagination.dto';
 
 export class QueryRemitosEstadoDto extends PaginationDto {
   @IsOptional() @IsDateString() desde?: string;

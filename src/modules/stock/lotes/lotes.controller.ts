@@ -1,6 +1,6 @@
 import { Body, Controller, Param, Patch } from '@nestjs/common';
 import { LotesService } from './lotes.service';
-import { UpdateLoteBloqueoDto } from './dto/update-lote-bloqueo.dto';
+import { UpdateLoteBloqueoDto } from '../lotes-fisicos/dto/update-lote-bloqueo.dto';
 
 @Controller('stock/lotes')
 export class LotesController {

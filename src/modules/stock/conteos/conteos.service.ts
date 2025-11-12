@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ConteoAjusteDto } from './dto/conteo-ajuste.dto';
-import { MovimientoStock } from './entities/movimiento-stock.entity';
-import { MovimientoStockDetalle } from './entities/movimiento-stock-detalle.entity';
-import { MovimientoTipo } from './enums/movimiento-tipo.enum';
+import { MovimientoStock } from '../movimientos/entities/movimiento-stock.entity';
+import { MovimientoStockDetalle } from '../movimientos/entities/movimiento-stock-detalle.entity';
+import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
 
 function toDecimal4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;

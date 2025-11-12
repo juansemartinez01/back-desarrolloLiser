@@ -1,6 +1,6 @@
 import { Column, Entity, Index, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
-import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
+import { BaseEntity } from '../../../../entities/base.entity';
+import { MovimientoTipo } from '../../enums/movimiento-tipo.enum';
 import { MovimientoStockDetalle } from './movimiento-stock-detalle.entity';
 
 @Entity('stk_movimientos')

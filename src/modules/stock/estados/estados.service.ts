@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { QueryRemitosEstadoDto } from './dto/query-remitos-estado.dto';
-import { ConciliarPendientesDto } from './dto/conciliar-pendientes.dto';
-import { MovimientoStock } from './entities/movimiento-stock.entity';
-import { MovimientoStockDetalle } from './entities/movimiento-stock-detalle.entity';
-import { MovimientoTipo } from './enums/movimiento-tipo.enum';
+import { QueryRemitosEstadoDto } from '../remitos/dto/query-remitos-estado.dto';
+import { ConciliarPendientesDto } from '../dto/conciliar-pendientes.dto';
+import { MovimientoStock } from '../movimientos/entities/movimiento-stock.entity';
+import { MovimientoStockDetalle } from '../movimientos/entities/movimiento-stock-detalle.entity';
+import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
 
 
 @Injectable()

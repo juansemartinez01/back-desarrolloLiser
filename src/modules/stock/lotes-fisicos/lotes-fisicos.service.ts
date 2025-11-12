@@ -1,12 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { StockLote } from './entities/stock-lote.entity';
+import { StockLote } from '../stock-actual/entities/stock-lote.entity';
 import { LoteAlmacen } from './entities/lote-almacen.entity';
-import { Producto } from './productos/entities/producto.entity';
-import { Unidad } from './productos/entities/unidad.entity';
-import { TipoProducto } from './productos/entities/tipo-producto.entity';
-import { RemitoItem } from './entities/remito-item.entity';
-import { Remito } from './entities/remito.entity';
+import { Producto } from '../productos/entities/producto.entity';
+import { Unidad } from '../productos/entities/unidad.entity';
+import { TipoProducto } from '../productos/entities/tipo-producto.entity';
+import { RemitoItem } from '../remitos/entities/remito-item.entity';
+import { Remito } from '../remitos/entities/remito.entity';
 import { QueryLotesFisicosDto } from './dto/query-lotes-fisicos.dto';
 
 @Injectable()

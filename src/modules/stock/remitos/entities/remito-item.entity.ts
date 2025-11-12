@@ -1,8 +1,8 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, RelationId } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
+import { BaseEntity } from '../../../../entities/base.entity';
 import { Remito } from './remito.entity';
-import { EmpresaFactura } from '../enums/empresa-factura.enum';
-import { StockLote } from './stock-lote.entity';
+import { EmpresaFactura } from '../../enums/empresa-factura.enum';
+import { StockLote } from '../../stock-actual/entities/stock-lote.entity';
 
 @Entity('stk_remito_items')
 export class RemitoItem extends BaseEntity {

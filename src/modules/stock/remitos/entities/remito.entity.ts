@@ -1,6 +1,6 @@
 // src/modules/stock/remitos/entities/remito.entity.ts
 import { Column, Entity, Index, OneToMany } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
+import { BaseEntity } from '../../../../entities/base.entity';
 import { RemitoItem } from './remito-item.entity';
 
 @Entity('stk_remitos')
