@@ -1,6 +1,6 @@
 import { Column, Entity, Index, ManyToOne, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../../entities/base.entity';
-import { CcCliente } from '../../entities/cliente.entity';
+import { CcCliente } from '../../clientes/entities/cliente.entity';
 import { PagoCuenta } from '../../enums/pago-cuenta.enum';
 import { CcPagoDet } from '../../pagos/entities/pago-det.entity';
 

@@ -1,6 +1,6 @@
 import { Column, Entity, Index, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../../entities/base.entity';
-import { CcCliente } from '../../entities/cliente.entity';
+import { CcCliente } from '../../clientes/entities/cliente.entity';
 
 @Entity('cc_cargos')
 export class CcCargo extends BaseEntity {

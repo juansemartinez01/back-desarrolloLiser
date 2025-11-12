@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CcCliente } from './entities/cliente.entity';
+import { CcCliente } from './clientes/entities/cliente.entity';
 import { CcCargo } from './cargos/entities/cargo.entity';
 import { CcPago } from './pagos/entities/pago.entity';
 import { CcPagoDet } from './pagos/entities/pago-det.entity';
@@ -14,10 +14,11 @@ import { AjustesService } from './ajustes/ajustes.service';
 import { EstadoCuentaService } from './estado-cuenta.service';
 import { EstadoCuentaController } from './estado-cuenta.controller';
 import { ReportesService } from './reportes.service';
+import { ClientesModule } from './clientes/clientes.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CcCliente, CcCargo, CcPago, CcPagoDet, CcAjuste]),
+    TypeOrmModule.forFeature([CcCliente, CcCargo, CcPago, CcPagoDet, CcAjuste]),ClientesModule
   ],
   providers: [
     CargosService,
