@@ -70,7 +70,7 @@ export class FraccionamientosService {
         const deltaStr = Number(delta).toFixed(4);
         await qr.query(
           `
-          INSERT INTO public.stk_lote_almacen (lote_id, almacen_id, cantidad_asignada, cantidad_disponible,version)
+          INSERT INTO public.stk_lote_almacen (lote_id, almacen_id, cantidad_asignada, cantidad_disponible)
           VALUES ($1, $2, 0, $3)
           ON CONFLICT (lote_id, almacen_id)
           DO UPDATE SET cantidad_disponible = public.stk_lote_almacen.cantidad_disponible + EXCLUDED.cantidad_disponible
@@ -342,7 +342,7 @@ export class FraccionamientosService {
         const deltaStr = Number(delta).toFixed(4);
         await qr.query(
           `
-          INSERT INTO public.stk_lote_almacen (lote_id, almacen_id, cantidad_asignada, cantidad_disponible,version)
+          INSERT INTO public.stk_lote_almacen (lote_id, almacen_id, cantidad_asignada, cantidad_disponible)
           VALUES ($1, $2, 0, $3)
           ON CONFLICT (lote_id, almacen_id)
           DO UPDATE SET cantidad_disponible = public.stk_lote_almacen.cantidad_disponible + EXCLUDED.cantidad_disponible
