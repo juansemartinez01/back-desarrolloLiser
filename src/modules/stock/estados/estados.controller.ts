@@ -7,9 +7,9 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { QueryRemitosEstadoDto } from './dto/query-remitos-estado.dto';
-import { EstadosService } from './estados.service';
-import { ConciliarPendientesDto } from './dto/conciliar-pendientes.dto';
+import { QueryRemitosEstadoDto } from '../remitos/dto/query-remitos-estado.dto';
+import { EstadosService } from '../estados/estados.service';
+import { ConciliarPendientesDto } from '../dto/conciliar-pendientes.dto';
 
 @Controller('stock')
 export class EstadosController {
