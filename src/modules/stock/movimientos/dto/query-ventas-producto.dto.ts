@@ -1,27 +1,31 @@
 import { IsDateString, IsInt, IsOptional, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class QueryVentasProductoDto {
-  // rango de fecha/hora (incluye hora)
   @IsDateString()
-  desde: string; // ej 2025-11-12T00:00:00Z
+  desde: string;
 
   @IsDateString()
-  hasta: string; // ej 2025-11-13T00:00:00Z
+  hasta: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   almacen_id?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   producto_id?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   limit?: number;
