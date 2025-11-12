@@ -8,8 +8,8 @@ import {
   RelationId,
   Unique,
 } from 'typeorm';
-import { BaseEntity } from '../../../entities/base.entity';
-import { StockLote } from '../stock-actual/entities/stock-lote.entity';
+import { BaseEntity } from '../../../../entities/base.entity';
+import { StockLote } from '../../stock-actual/entities/stock-lote.entity';
 
 @Entity('stk_lote_almacen')
 @Unique('ux_lote_almacen', ['lote', 'almacen_id']) // 👈 referencia a la PROPIEDAD, no al nombre de columna
