@@ -40,6 +40,8 @@ import { LotesFisicosController } from './lotes-fisicos/lotes-fisicos.controller
 import { VentasController } from './movimientos/ventas.controller';
 import { VentasService } from './movimientos/ventas.service';
 import { MovimientosModule } from './movimientos/movimientos.module';
+import { Almacen } from './almacenes/entities/almacen.entity';
+import { AlmacenesModule } from './almacenes/almacenes.module';
 
 @Module({
   imports: [
@@ -56,6 +58,7 @@ import { MovimientosModule } from './movimientos/movimientos.module';
     ]),
     ProductosModule,
     MovimientosModule,
+    AlmacenesModule,
   ],
   controllers: [
     StockController,
