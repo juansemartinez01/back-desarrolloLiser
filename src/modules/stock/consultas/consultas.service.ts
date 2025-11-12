@@ -19,12 +19,46 @@ export class StockQueriesService {
     const qb = this.ds
       .createQueryBuilder()
       .from('stk_stock_actual', 'sa')
-      .select(['sa.id', 'sa.producto_id', 'sa.almacen_id', 'sa.cantidad']);
+      .innerJoin('stk_productos', 'p', 'p.id = sa.producto_id')
+      .leftJoin('stk_unidades', 'u', 'u.id = p.unidad_id')
+      .leftJoin('stk_tipos_producto', 'tp', 'tp.id = p.tipo_producto_id')
+      .select([
+        'sa.id              AS sa_id',
+        'sa.producto_id     AS sa_producto_id',
+        'sa.almacen_id      AS sa_almacen_id',
+        'sa.cantidad        AS sa_cantidad',
 
-    if (q.producto_id)
+        // producto
+        'p.id               AS prod_id',
+        'p.nombre           AS prod_nombre',
+        'p.codigo_comercial AS prod_codigo_comercial',
+        'p.unidad_id        AS prod_unidad_id',
+        'p.tipo_producto_id AS prod_tipo_producto_id',
+        'p.precio_base      AS prod_precio_base',
+        'p.precio_oferta    AS prod_precio_oferta',
+        'p.oferta           AS prod_oferta',
+        'p.vacio            AS prod_vacio',
+        'p.empresa          AS prod_empresa',
+
+        // unidad
+        'u.id               AS unidad_id',
+        'u.codigo           AS unidad_codigo',
+        'u.nombre           AS unidad_nombre',
+        'u.abreviatura      AS unidad_abreviatura',
+
+        // tipo de producto
+        'tp.id              AS tipo_id',
+        'tp.nombre          AS tipo_nombre',
+        'tp.descripcion     AS tipo_descripcion',
+      ]);
+
+    if (q.producto_id) {
       qb.andWhere('sa.producto_id = :pid', { pid: q.producto_id });
-    if (q.almacen_id)
+    }
+    if (q.almacen_id) {
       qb.andWhere('sa.almacen_id = :aid', { aid: q.almacen_id });
+    }
+
     qb.orderBy('sa.producto_id', 'ASC')
       .addOrderBy('sa.almacen_id', 'ASC')
       .limit(limit)
@@ -48,7 +82,41 @@ export class StockQueriesService {
         .then((r: any) => Number(r.c) || 0),
     ]);
 
-    return { data: rows, total, page, limit };
+    // Armar respuesta “linda”
+    const data = rows.map((r: any) => ({
+      id: r.sa_id,
+      producto_id: r.sa_producto_id,
+      almacen_id: r.sa_almacen_id,
+      cantidad: r.sa_cantidad,
+
+      producto: {
+        id: r.prod_id,
+        nombre: r.prod_nombre,
+        codigo_comercial: r.prod_codigo_comercial,
+        unidad_id: r.prod_unidad_id,
+        tipo_producto_id: r.prod_tipo_producto_id,
+        precio_base: r.prod_precio_base,
+        precio_oferta: r.prod_precio_oferta,
+        oferta: r.prod_oferta,
+        vacio: r.prod_vacio,
+        empresa: r.prod_empresa,
+      },
+
+      unidad: r.unidad_id && {
+        id: r.unidad_id,
+        codigo: r.unidad_codigo,
+        nombre: r.unidad_nombre,
+        abreviatura: r.unidad_abreviatura,
+      },
+
+      tipo_producto: r.tipo_id && {
+        id: r.tipo_id,
+        nombre: r.tipo_nombre,
+        descripcion: r.tipo_descripcion,
+      },
+    }));
+
+    return { data, total, page, limit };
   }
   async getKardex(q: QueryKardexDto) {
     const page = q.page ?? 1;
