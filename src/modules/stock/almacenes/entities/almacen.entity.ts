@@ -33,6 +33,9 @@ export class Almacen extends BaseEntity {
   @Column({ type: 'varchar', length: 50, nullable: true })
   codigo_interno?: string | null;
 
+  @Column({ type: 'int', nullable: true })
+  almacen_id?: number | null;
+
   @Column({ type: 'boolean', default: true })
   activo: boolean;
 }
