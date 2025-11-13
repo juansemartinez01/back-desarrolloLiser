@@ -79,99 +79,83 @@ export class EstadoCuentaService {
     //  - PAGO_C1/C2:   -importe
     //  - NC:           -importe
     // Se arma una UNION ALL con una vista "mov(cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed)"
-    const idxLimit = p++;
-    const idxOffset = p++;
+    // ... después de construir `params` y `p` con los filtros:
+    const siIdx = p++; // índice para saldo_inicial
+    const limitIdx = p++; // índice para LIMIT
+    const offsetIdx = p++; // índice para OFFSET
 
     const sqlMovs = `
-      WITH mov AS (
-        -- CARGOS
-        SELECT
-          c.cliente_id,
-          c.fecha,
-          'CARGO'::text AS tipo,
-          c.id::text    AS origen_id,
-          COALESCE(c.venta_ref_tipo,'') || ':' || COALESCE(c.venta_ref_id,'') AS ref,
-          c.observacion,
-          (c.importe)::numeric(18,4) AS importe_signed
-        FROM public.cc_cargos c
-        WHERE c.cliente_id = $1
+  WITH mov AS (
+    -- CARGOS
+    SELECT
+      c.cliente_id,
+      c.fecha,
+      'CARGO'::text AS tipo,
+      c.id::text    AS origen_id,
+      COALESCE(c.venta_ref_tipo,'') || ':' || COALESCE(c.venta_ref_id,'') AS ref,
+      c.observacion,
+      (c.importe)::numeric(18,4) AS importe_signed
+    FROM public.cc_cargos c
+    WHERE c.cliente_id = $1
 
-        UNION ALL
+    UNION ALL
 
-       -- PAGOS (Cuenta 1/2)
-        SELECT
-          p.cliente_id,
-          p.fecha,
-          CASE WHEN p.cuenta = 'CUENTA1'::cc_pago_cuenta THEN 'PAGO_C1' ELSE 'PAGO_C2' END AS tipo,
-          p.id::text AS origen_id,
-          COALESCE(p.referencia_externa,'') AS ref,
-          p.observacion,
-          (-p.importe)::numeric(18,4) AS importe_signed
-        FROM public.cc_pagos p
-        WHERE p.cliente_id = $1
+    -- PAGOS (Cuenta 1/2)
+    SELECT
+      p.cliente_id,
+      p.fecha,
+      CASE WHEN p.cuenta = 'CUENTA1'::cc_pago_cuenta THEN 'PAGO_C1' ELSE 'PAGO_C2' END AS tipo,
+      p.id::text AS origen_id,
+      COALESCE(p.referencia_externa,'') AS ref,
+      p.observacion,
+      (-p.importe_total)::numeric(18,4) AS importe_signed
+    FROM public.cc_pagos p
+    WHERE p.cliente_id = $1
 
+    UNION ALL
 
-        UNION ALL
+    -- NC (negativo)
+    SELECT
+      a.cliente_id, a.fecha, 'NC'::text, a.id::text,
+      COALESCE(a.referencia_externa,''), a.observacion,
+      (-a.monto_total)::numeric(18,4)
+    FROM public.cc_ajustes a
+    WHERE a.cliente_id = $1 AND a.tipo = 'NC'
 
-        -- NOTAS DE CRÉDITO (NC) => negativo
-        SELECT
-          a.cliente_id,
-          a.fecha,
-          'NC'::text AS tipo,
-          a.id::text AS origen_id,
-          COALESCE(a.referencia_externa,'') AS ref,
-          a.observacion,
-          (-a.importe)::numeric(18,4) AS importe_signed
-        FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.tipo = 'NC'
+    UNION ALL
 
-        UNION ALL
-
-        -- NOTAS DE DÉBITO (ND) => positivo
-        SELECT
-          a.cliente_id,
-          a.fecha,
-          'ND'::text AS tipo,
-          a.id::text AS origen_id,
-          COALESCE(a.referencia_externa,'') AS ref,
-          a.observacion,
-          (a.importe)::numeric(18,4) AS importe_signed
-        FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.tipo = 'ND'
-      ),
-      filtrado AS (
-        SELECT *
-        FROM mov
-        WHERE ${whereMov}
-      ),
-      ordenado AS (
-        SELECT *
-        FROM filtrado
+    -- ND (positivo)
+    SELECT
+      a.cliente_id, a.fecha, 'ND'::text, a.id::text,
+      COALESCE(a.referencia_externa,''), a.observacion,
+      (a.monto_total)::numeric(18,4)
+    FROM public.cc_ajustes a
+    WHERE a.cliente_id = $1 AND a.tipo = 'ND'
+  ),
+  filtrado AS (
+    SELECT * FROM mov WHERE ${whereMov}
+  ),
+  ordenado AS (
+    SELECT * FROM filtrado
+    ORDER BY fecha ${order}, tipo ${order}, origen_id ${order}
+  ),
+  con_running AS (
+    SELECT
+      cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed,
+      SUM(importe_signed) OVER (
         ORDER BY fecha ${order}, tipo ${order}, origen_id ${order}
-      ),
-      con_running AS (
-        SELECT
-          cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed,
-          -- saldo corrido relativo al período (arranca en 0)
-          SUM(importe_signed) OVER (
-            ORDER BY fecha ${order}, tipo ${order}, origen_id ${order}
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) AS running_period
-        FROM ordenado
-      )
-      SELECT
-        cliente_id,
-        fecha,
-        tipo,
-        origen_id,
-        ref,
-        observacion,
-        importe_signed,
-        -- saldo corrido absoluto = saldo_inicial + running_period
-        ( $${idxLimit - 1} + running_period )::numeric(18,4) AS saldo_corrido
-      FROM con_running
-      LIMIT $${idxLimit} OFFSET $${idxOffset};
-    `;
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS running_period
+    FROM ordenado
+  )
+  SELECT
+    cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed,
+    ( $${siIdx}::numeric + running_period )::numeric(18,4) AS saldo_corrido
+  FROM con_running
+  LIMIT $${limitIdx} OFFSET $${offsetIdx};
+`;
+
+    
 
     // Totales del período (para footer)
     const sqlTotales = `
