@@ -108,7 +108,7 @@ export class EstadoCuentaService {
       p.id::text AS origen_id,
       COALESCE(p.referencia_externa,'') AS ref,
       p.observacion,
-      (-p.importe_total)::numeric(18,4) AS importe_signed
+      (-p.importe)::numeric(18,4) AS importe_signed
     FROM public.cc_pagos p
     WHERE p.cliente_id = $1
 
@@ -118,7 +118,7 @@ export class EstadoCuentaService {
     SELECT
       a.cliente_id, a.fecha, 'NC'::text, a.id::text,
       COALESCE(a.referencia_externa,''), a.observacion,
-      (-a.monto_total)::numeric(18,4)
+      (-a.importe)::numeric(18,4)
     FROM public.cc_ajustes a
     WHERE a.cliente_id = $1 AND a.tipo = 'NC'
 
@@ -128,7 +128,7 @@ export class EstadoCuentaService {
     SELECT
       a.cliente_id, a.fecha, 'ND'::text, a.id::text,
       COALESCE(a.referencia_externa,''), a.observacion,
-      (a.monto_total)::numeric(18,4)
+      (a.importe)::numeric(18,4)
     FROM public.cc_ajustes a
     WHERE a.cliente_id = $1 AND a.tipo = 'ND'
   ),
