@@ -38,12 +38,12 @@ export class EstadoCuentaService {
           WHERE cliente_id = $1 AND fecha < $2
         ),
         tot_nc AS (
-          SELECT COALESCE(SUM(monto_total),0)::numeric AS s
+          SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_ajustes
           WHERE cliente_id = $1 AND tipo = 'NC' AND fecha < $2
         ),
         tot_nd AS (
-          SELECT COALESCE(SUM(monto_total),0)::numeric AS s
+          SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_ajustes
           WHERE cliente_id = $1 AND tipo = 'ND' AND fecha < $2
         )
@@ -75,9 +75,9 @@ export class EstadoCuentaService {
     // --- Movimientos unificados con importe firmado ---
     // Convenciones:
     //  - CARGO:        +importe
-    //  - ND:           +monto_total
+    //  - ND:           +importe
     //  - PAGO_C1/C2:   -importe
-    //  - NC:           -monto_total
+    //  - NC:           -importe
     // Se arma una UNION ALL con una vista "mov(cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed)"
     const idxLimit = p++;
     const idxOffset = p++;
@@ -121,7 +121,7 @@ export class EstadoCuentaService {
           a.id::text AS origen_id,
           COALESCE(a.referencia_externa,'') AS ref,
           a.observacion,
-          (-a.monto_total)::numeric(18,4) AS importe_signed
+          (-a.importe)::numeric(18,4) AS importe_signed
         FROM public.cc_ajustes a
         WHERE a.cliente_id = $1 AND a.tipo = 'NC'
 
@@ -135,7 +135,7 @@ export class EstadoCuentaService {
           a.id::text AS origen_id,
           COALESCE(a.referencia_externa,'') AS ref,
           a.observacion,
-          (a.monto_total)::numeric(18,4) AS importe_signed
+          (a.importe)::numeric(18,4) AS importe_signed
         FROM public.cc_ajustes a
         WHERE a.cliente_id = $1 AND a.tipo = 'ND'
       ),
@@ -189,11 +189,11 @@ export class EstadoCuentaService {
         WHERE p.cliente_id = $1
 
         UNION ALL
-        SELECT a.fecha, 'NC', (-a.monto_total)::numeric
+        SELECT a.fecha, 'NC', (-a.importe)::numeric
         FROM public.cc_ajustes a WHERE a.cliente_id = $1 AND a.tipo = 'NC'
 
         UNION ALL
-        SELECT a.fecha, 'ND', (a.monto_total)::numeric
+        SELECT a.fecha, 'ND', (a.importe)::numeric
         FROM public.cc_ajustes a WHERE a.cliente_id = $1 AND a.tipo = 'ND'
       )
       SELECT
