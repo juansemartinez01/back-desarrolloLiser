@@ -4,4 +4,5 @@ export enum MovimientoTipo {
   VENTA = 'VENTA',
   MERMA = 'MERMA',
   AJUSTE = 'AJUSTE',
+  AJUSTE_POR_CAMBIO = 'AJUSTE_POR_CAMBIO',
 }
