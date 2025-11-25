@@ -1,13 +1,53 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { ReservasService } from '../reservas/reservas.service';
 import { RegistrarVentaDto } from './dto/venta.dto';
 import { MovimientoStock } from './entities/movimiento-stock.entity';
 import { MovimientoStockDetalle } from './entities/movimiento-stock-detalle.entity';
 import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
-
+import { ConfirmarVentaDto } from './dto/confirmar-venta.dto';
 @Injectable()
 export class VentasService {
-  constructor(private readonly ds: DataSource) {}
+  constructor(
+    private readonly ds: DataSource,
+    private readonly reservasService: ReservasService,
+  ) {}
+  
+
+  async confirmarVenta(dto: ConfirmarVentaDto) {
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      // 1) Confirmar reservas
+      await this.reservasService.confirmar({
+        reservas_ids: dto.reservas_ids,
+        pedido_id: dto.pedido_id,
+      });
+
+      // 2) Ejecutar la venta real (tu método actual)
+      const venta = await this.registrarVenta({
+        lineas: dto.lineas,
+        fecha: dto.fecha,
+        almacen_origen_id: dto.almacen_origen_id,
+        observacion: dto.observacion,
+        referencia_id: dto.referencia_id,
+      });
+
+      await qr.commitTransaction();
+      return {
+        ok: true,
+        venta,
+        mensaje: 'Venta confirmada y reservas consumidas',
+      };
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+  }
 
   async registrarVenta(dto: RegistrarVentaDto) {
     if (!dto.lineas?.length) {

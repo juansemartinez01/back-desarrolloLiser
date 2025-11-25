@@ -1,6 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { VentasService } from './ventas.service';
 import { RegistrarVentaDto } from './dto/venta.dto';
+import { ConfirmarVentaDto } from './dto/confirmar-venta.dto';
 
 @Controller('stock/movimientos')
 export class VentasController {
@@ -9,5 +10,10 @@ export class VentasController {
   @Post('venta')
   async registrar(@Body() dto: RegistrarVentaDto) {
     return this.service.registrarVenta(dto);
+  }
+
+  @Post('venta/confirmar')
+  async confirmar(@Body() dto: ConfirmarVentaDto) {
+    return this.service.confirmarVenta(dto);
   }
 }
