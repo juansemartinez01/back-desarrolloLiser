@@ -1,0 +1,43 @@
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { ReservasService } from './reservas.service';
+import { ReservarStockDto } from './dto/reservar-stock.dto';
+import { CancelarReservaDto } from './dto/cancelar-reserva.dto';
+import { ConfirmarReservaDto } from './dto/confirmar-reserva.dto';
+
+@Controller('reservas')
+export class ReservasController {
+  constructor(private readonly service: ReservasService) {}
+
+  @Post()
+  reservar(@Body() dto: ReservarStockDto) {
+    return this.service.reservar(dto);
+  }
+
+  @Post('cancelar')
+  cancelar(@Body() dto: CancelarReservaDto) {
+    return this.service.cancelar(dto);
+  }
+
+  @Post('confirmar')
+  confirmar(@Body() dto: ConfirmarReservaDto) {
+    return this.service.confirmar(dto);
+  }
+
+  @Get('pendientes/:pedido_id')
+  listarPorPedido(@Param('pedido_id') pedido_id: number) {
+    return this.service.listarPorPedido(pedido_id);
+  }
+
+  @Get('disponible')
+  stockDisponible(
+    @Query('producto_id') producto_id: number,
+    @Query('almacen_id') almacen_id: number,
+  ) {
+    return this.service.stockDisponible(producto_id, almacen_id);
+  }
+
+  @Get()
+  listar() {
+    return this.service.listar();
+  }
+}
