@@ -98,9 +98,10 @@ export class EncontradosService {
             producto_id,
             cantidad_inicial,
             cantidad_disponible,
-            fecha_remito
+            fecha_remito,
+            lote_tipo
             )
-            VALUES ($1, $2, $3, $3, NOW())
+            VALUES ($1, $2, $3, $3, NOW(),2)
             `,
             [loteId, pid, cantidad.toFixed(4)],
           );
