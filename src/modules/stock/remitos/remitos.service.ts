@@ -521,7 +521,7 @@ export class RemitosService {
          pendiente,
          conductor_camion_id,
          conductor_camion_nombre)
-      VALUES ($1,$2,$3,$4,$5,true,true,$6,$7,$8)
+      VALUES ($1,$2,$3,$4,$5,$6,true,true,$7,$8)
       RETURNING id,
                 fecha_remito,
                 numero_remito,
