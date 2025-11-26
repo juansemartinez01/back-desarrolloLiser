@@ -323,20 +323,19 @@ export class StockQueriesService {
   }
 
   async stockPorAlmacenes(q: QueryStockPorAlmacenesDto) {
-    // Si no se envía almacenes → tomar TODOS los existentes
-    let almacenes = q.almacenes;
-    if (!almacenes?.length) {
+    // Si no se envían almacenes → obtener TODOS
+    let almacenes = q.almacenes ?? [];
+    if (!almacenes.length) {
       const rows = await this.ds.query(`
       SELECT id FROM public.stk_almacenes WHERE activo = true ORDER BY id;
     `);
       almacenes = rows.map((x: any) => Number(x.id));
     }
 
-    if (!almacenes?.length) {
+    if (almacenes.length === 0) {
       throw new Error('No hay almacenes válidos');
     }
 
-    // Construir SQL dinámico seguro
     const almacenesListaSql = almacenes.join(',');
 
     const sql = `
@@ -356,7 +355,9 @@ export class StockQueriesService {
           'cantidad', COALESCE(sa.cantidad, 0)
         )
         ORDER BY a.id
-      ) AS almacenes
+      ) AS almacenes,
+      -- TOTAL por producto (solo almacenes seleccionados)
+      SUM(COALESCE(sa.cantidad, 0)) AS total
     FROM prods p
     CROSS JOIN (
       SELECT id FROM public.stk_almacenes
@@ -373,9 +374,15 @@ export class StockQueriesService {
     const rows = await this.ds.query(sql);
 
     return {
-      almacenes,
-      total: rows.length,
-      data: rows,
+      almacenes_seleccionados: almacenes,
+      total_productos: rows.length,
+      data: rows.map((r: any) => ({
+        producto_id: r.producto_id,
+        nombre: r.nombre,
+        codigo_comercial: r.codigo_comercial,
+        almacenes: r.almacenes,
+        total: Number(r.total),
+      })),
     };
   }
 }
