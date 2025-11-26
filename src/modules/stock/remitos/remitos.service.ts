@@ -540,8 +540,9 @@ export class RemitosService {
           dto.proveedor_id ?? null,
           dto.proveedor_nombre ?? null,
           dto.observaciones ?? null,
-          dto.conductor_camion_id ?? null,
+
           dto.almacen_id ?? null,
+          dto.conductor_camion_id ?? null,
           conductorNombre,
         ],
       );
