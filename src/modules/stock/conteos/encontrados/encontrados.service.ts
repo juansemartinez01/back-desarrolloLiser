@@ -91,18 +91,23 @@ export class EncontradosService {
 
         if (!loteId) {
           loteId = randomUUID();
-          // crear lote nuevo
           await qr.query(
-            `
-            INSERT INTO public.stk_lotes (id, producto_id, cantidad_disponible, fecha_remito)
-            VALUES ($1, $2, $3, NOW())
-          `,
+                    `
+            INSERT INTO public.stk_lotes (
+            id,
+            producto_id,
+            cantidad_inicial,
+            cantidad_disponible,
+            fecha_remito
+            )
+            VALUES ($1, $2, $3, $3, NOW())
+            `,
             [loteId, pid, cantidad.toFixed(4)],
           );
         } else {
-          // sumar al lote existente
           await sumToLote(loteId, cantidad);
         }
+
 
         // sumar a lote_almacen
         await sumToLoteAlmacen(loteId, aid, cantidad);
