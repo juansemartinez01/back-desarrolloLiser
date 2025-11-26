@@ -516,6 +516,7 @@ export class RemitosService {
          proveedor_id,
          proveedor_nombre,
          observaciones,
+         almacen_id,
          es_ingreso_rapido,
          pendiente,
          conductor_camion_id,
@@ -527,6 +528,7 @@ export class RemitosService {
                 proveedor_id,
                 proveedor_nombre,
                 observaciones,
+                almacen_id,
                 es_ingreso_rapido,
                 pendiente,
                 conductor_camion_id,
@@ -539,6 +541,7 @@ export class RemitosService {
           dto.proveedor_nombre ?? null,
           dto.observaciones ?? null,
           dto.conductor_camion_id ?? null,
+          dto.almacen_id ?? null,
           conductorNombre,
         ],
       );

@@ -20,6 +20,9 @@ export class Remito extends BaseEntity {
   @Column({ type: 'varchar', length: 200, nullable: true })
   proveedor_nombre?: string | null;
 
+  @Column({ type: 'int', nullable: true })
+  almacen_id: number;
+
   @Column({ type: 'text', nullable: true })
   observaciones?: string | null;
 

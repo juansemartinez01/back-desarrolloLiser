@@ -59,6 +59,10 @@ export class IngresoRapidoRemitoDto {
   conductor_camion_id: string;
 
   @IsOptional()
+  @IsInt()
+  almacen_id?: number;
+
+  @IsOptional()
   @IsString()
   observaciones?: string;
 
