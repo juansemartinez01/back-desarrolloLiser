@@ -322,75 +322,86 @@ export class StockQueriesService {
     return { data, total, page, limit };
   }
 
-  async stockPorAlmacenes(q: QueryStockPorAlmacenesDto) {
+  async stockPorAlmacenes(q: any) {
     if (!q.almacenes) {
-      throw new BadRequestException('Debe enviar ?almacenes=uuid1,uuid2,...');
+      throw new BadRequestException('Debe enviar ?almacenes=1,2,3');
     }
 
-    // Parsear, limpiar y validar UUIDs
-    const almacenes = q.almacenes
+    // convertir string → array de enteros
+    const intIds = q.almacenes
       .split(',')
-      .map((x) => x.trim())
-      .filter((x) => x.length > 0); // ❗ eliminar vacíos
+      .map((v: string) => Number(v.trim()))
+      .filter((v) => !isNaN(v));
 
-    if (!almacenes.length) {
-      throw new BadRequestException('Lista de almacenes inválida');
+    if (!intIds.length) {
+      throw new BadRequestException('Formato inválido de almacenes');
     }
 
-    // Validar que todos sean UUID
-    for (const a of almacenes) {
-      if (!/^[0-9a-fA-F-]{36}$/.test(a)) {
-        throw new BadRequestException(`almacen_id inválido: ${a}`);
-      }
+    // 🔄 convertir almacen_id (INT) → UUID
+    const almacenUuids = await this.mapAlmacenIdsToUuids(intIds);
+
+    if (!almacenUuids.length) {
+      throw new BadRequestException(
+        `Ninguno de los almacenes existe: ${q.almacenes}`,
+      );
     }
 
-    const almacenesListaSql = almacenes.map((a) => `'${a}'`).join(',');
+    // Armar placeholders para IN (...)
+    const placeholders = almacenUuids.map((_, i) => `$${i + 1}`).join(',');
 
     const sql = `
-    WITH prods AS (
-      SELECT id, nombre, codigo_comercial
-      FROM public.stk_productos
-      WHERE activo = true
-    )
-    SELECT
+    SELECT 
       p.id AS producto_id,
-      p.nombre,
-      p.codigo_comercial,
-      jsonb_agg(
+      p.nombre AS nombre,
+      array_agg(
         jsonb_build_object(
-          'almacen_id', a.id,
-          'cantidad', COALESCE(sa.cantidad, 0)
-        )
-        ORDER BY a.id
-      ) AS almacenes,
-      SUM(COALESCE(sa.cantidad, 0)) AS total
-    FROM prods p
-    CROSS JOIN (
-      SELECT id
-      FROM public.stk_almacenes
-      WHERE id IN (${almacenesListaSql})
-    ) a
+          'almacen_id', sa.almacen_id,
+          'cantidad', sa.cantidad
+        ) ORDER BY sa.almacen_id
+      ) AS almacenes
+    FROM public.stk_productos p
     LEFT JOIN public.stk_stock_actual sa
       ON sa.producto_id = p.id
-     AND sa.almacen_id = a.id
-    GROUP BY p.id, p.nombre, p.codigo_comercial
+     AND sa.almacen_id IN (${placeholders})
+    GROUP BY p.id, p.nombre
     ORDER BY p.id;
   `;
 
-    const rows = await this.ds.query(sql);
+    const rows = await this.ds.query(sql, almacenUuids);
 
-    return {
-      data: rows.map((r) => ({
-        producto_id: r.producto_id,
-        nombre: r.nombre,
-        codigo_comercial: r.codigo_comercial,
-        total: Number(r.total ?? 0),
-        almacenes: r.almacenes.map((x: any) => ({
-          almacen_id: x.almacen_id,
-          cantidad: Number(x.cantidad ?? 0),
-        })),
+    // Agrego el total de cada producto
+    const data = rows.map((r: any) => ({
+      producto_id: r.producto_id,
+      nombre: r.nombre,
+      almacenes: r.almacenes.map((a: any) => ({
+        almacen_id: a.almacen_id,
+        cantidad: Number(a.cantidad ?? 0),
       })),
-      almacenes: almacenes, // devuelvo los seleccionados por claridad
-    };
+      total: r.almacenes.reduce(
+        (acc: number, a: any) => acc + Number(a.cantidad ?? 0),
+        0,
+      ),
+    }));
+
+    return { data };
+  }
+
+  private async mapAlmacenIdsToUuids(intIds: number[]): Promise<string[]> {
+    if (!intIds.length) return [];
+
+    const placeholders = intIds.map((_, i) => `$${i + 1}`).join(',');
+
+    const rows = await this.ds.query(
+      `
+      SELECT id
+      FROM public.stk_almacenes
+      WHERE almacen_id IN (${placeholders})
+        AND activo = true
+    `,
+      intIds,
+    );
+
+    // devolvemos solo los UUID
+    return rows.map((r: any) => r.id);
   }
 }
