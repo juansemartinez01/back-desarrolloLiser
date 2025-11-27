@@ -324,8 +324,22 @@ export class StockQueriesService {
 
   async stockPorAlmacenes(q: QueryStockPorAlmacenesDto) {
     // Si no se envían almacenes → obtener TODOS
-    let almacenes = q.almacenes ?? [];
-    if (!almacenes.length) {
+    // q.almacenes puede venir como array o como string CSV; normalizamos a array de números
+    const almacenesRaw = q.almacenes ?? [];
+    let almacenes: number[] = [];
+
+    if (Array.isArray(almacenesRaw)) {
+      almacenes = almacenesRaw.map((a: any) => Number(a)).filter((n) => !Number.isNaN(n));
+    } else if (typeof almacenesRaw === 'string') {
+      almacenes = almacenesRaw
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((s) => Number(s))
+        .filter((n) => !Number.isNaN(n));
+    }
+
+    if (almacenes.length === 0) {
       const rows = await this.ds.query(`
       SELECT id FROM public.stk_almacenes WHERE activo = true ORDER BY id;
     `);
@@ -336,7 +350,8 @@ export class StockQueriesService {
       throw new Error('No hay almacenes válidos');
     }
 
-    const almacenesListaSql = almacenes.join(',');
+    const almacenesListaSql = almacenes.map((a) => `'${a}'`).join(',');
+
 
     const sql = `
     WITH prods AS (
