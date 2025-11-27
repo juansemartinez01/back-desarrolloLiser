@@ -328,36 +328,29 @@ export class StockQueriesService {
     }
 
     // convertir string → array de enteros
-    const intIds = q.almacenes
+    const almacenIds = q.almacenes
       .split(',')
       .map((v: string) => Number(v.trim()))
       .filter((v) => !isNaN(v));
 
-    if (!intIds.length) {
+    if (!almacenIds.length) {
       throw new BadRequestException('Formato inválido de almacenes');
     }
 
-    // 🔄 convertir almacen_id (INT) → UUID
-    const almacenUuids = await this.mapAlmacenIdsToUuids(intIds);
-
-    if (!almacenUuids.length) {
-      throw new BadRequestException(
-        `Ninguno de los almacenes existe: ${q.almacenes}`,
-      );
-    }
-
-    // Armar placeholders para IN (...)
-    const placeholders = almacenUuids.map((_, i) => `$${i + 1}`).join(',');
+    const placeholders = almacenIds.map((_, i) => `$${i + 1}`).join(',');
 
     const sql = `
     SELECT 
       p.id AS producto_id,
       p.nombre AS nombre,
-      array_agg(
-        jsonb_build_object(
-          'almacen_id', sa.almacen_id,
-          'cantidad', sa.cantidad
-        ) ORDER BY sa.almacen_id
+      COALESCE(
+        jsonb_agg(
+          jsonb_build_object(
+            'almacen_id', sa.almacen_id,
+            'cantidad', sa.cantidad
+          ) ORDER BY sa.almacen_id
+        ) FILTER (WHERE sa.almacen_id IS NOT NULL),
+        '[]'::jsonb
       ) AS almacenes
     FROM public.stk_productos p
     LEFT JOIN public.stk_stock_actual sa
@@ -367,21 +360,21 @@ export class StockQueriesService {
     ORDER BY p.id;
   `;
 
-    const rows = await this.ds.query(sql, almacenUuids);
+    const rows = await this.ds.query(sql, almacenIds);
 
-    // Agrego el total de cada producto
-    const data = rows.map((r: any) => ({
-      producto_id: r.producto_id,
-      nombre: r.nombre,
-      almacenes: r.almacenes.map((a: any) => ({
+    const data = rows.map((r: any) => {
+      const almacenes = (r.almacenes ?? []).map((a: any) => ({
         almacen_id: a.almacen_id,
         cantidad: Number(a.cantidad ?? 0),
-      })),
-      total: r.almacenes.reduce(
-        (acc: number, a: any) => acc + Number(a.cantidad ?? 0),
-        0,
-      ),
-    }));
+      }));
+
+      return {
+        producto_id: r.producto_id,
+        nombre: r.nombre,
+        almacenes,
+        total: almacenes.reduce((sum, a) => sum + a.cantidad, 0),
+      };
+    });
 
     return { data };
   }
