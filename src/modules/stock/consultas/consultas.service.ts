@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { QueryStockActualDto } from '../stock-actual/dto/query-stock-actual.dto';
 import { QueryKardexDto } from '../dto/query-kardex.dto';
@@ -323,78 +323,74 @@ export class StockQueriesService {
   }
 
   async stockPorAlmacenes(q: QueryStockPorAlmacenesDto) {
-    // Si no se envían almacenes → obtener TODOS
-    // q.almacenes puede venir como array o como string CSV; normalizamos a array de números
-    const almacenesRaw = q.almacenes ?? [];
-    let almacenes: number[] = [];
-
-    if (Array.isArray(almacenesRaw)) {
-      almacenes = almacenesRaw.map((a: any) => Number(a)).filter((n) => !Number.isNaN(n));
-    } else if (typeof almacenesRaw === 'string') {
-      almacenes = almacenesRaw
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
-        .map((s) => Number(s))
-        .filter((n) => !Number.isNaN(n));
+    if (!q.almacenes) {
+      throw new BadRequestException('Debe enviar ?almacenes=uuid1,uuid2,...');
     }
 
-    if (almacenes.length === 0) {
-      const rows = await this.ds.query(`
-      SELECT id FROM public.stk_almacenes WHERE activo = true ORDER BY id;
-    `);
-      almacenes = rows.map((x: any) => Number(x.id));
+    // Parsear, limpiar y validar UUIDs
+    const almacenes = q.almacenes
+      .split(',')
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0); // ❗ eliminar vacíos
+
+    if (!almacenes.length) {
+      throw new BadRequestException('Lista de almacenes inválida');
     }
 
-    if (almacenes.length === 0) {
-      throw new Error('No hay almacenes válidos');
+    // Validar que todos sean UUID
+    for (const a of almacenes) {
+      if (!/^[0-9a-fA-F-]{36}$/.test(a)) {
+        throw new BadRequestException(`almacen_id inválido: ${a}`);
+      }
     }
 
     const almacenesListaSql = almacenes.map((a) => `'${a}'`).join(',');
 
-
     const sql = `
-  WITH prods AS (
-    SELECT id, nombre, codigo_comercial
-    FROM public.stk_productos
-    WHERE activo = true
-  )
-  SELECT
-    p.id AS producto_id,
-    p.nombre,
-    p.codigo_comercial,
-    jsonb_agg(
-      jsonb_build_object(
-        'almacen_id', a.id,
-        'cantidad', COALESCE(sa.cantidad, 0)
-      )
-      ORDER BY a.id
-    ) AS almacenes,
-    SUM(COALESCE(sa.cantidad, 0)) AS total
-  FROM prods p
-  CROSS JOIN (
-    SELECT id FROM public.stk_almacenes
-    WHERE id IN (${almacenesListaSql})
-  ) a
-  LEFT JOIN public.stk_stock_actual sa
-    ON sa.producto_id = p.id
-   AND sa.almacen_id = a.id
-  GROUP BY p.id, p.nombre, p.codigo_comercial
-  ORDER BY p.id;
-`;
+    WITH prods AS (
+      SELECT id, nombre, codigo_comercial
+      FROM public.stk_productos
+      WHERE activo = true
+    )
+    SELECT
+      p.id AS producto_id,
+      p.nombre,
+      p.codigo_comercial,
+      jsonb_agg(
+        jsonb_build_object(
+          'almacen_id', a.id,
+          'cantidad', COALESCE(sa.cantidad, 0)
+        )
+        ORDER BY a.id
+      ) AS almacenes,
+      SUM(COALESCE(sa.cantidad, 0)) AS total
+    FROM prods p
+    CROSS JOIN (
+      SELECT id
+      FROM public.stk_almacenes
+      WHERE id IN (${almacenesListaSql})
+    ) a
+    LEFT JOIN public.stk_stock_actual sa
+      ON sa.producto_id = p.id
+     AND sa.almacen_id = a.id
+    GROUP BY p.id, p.nombre, p.codigo_comercial
+    ORDER BY p.id;
+  `;
 
     const rows = await this.ds.query(sql);
 
     return {
-      almacenes_seleccionados: almacenes,
-      total_productos: rows.length,
-      data: rows.map((r: any) => ({
+      data: rows.map((r) => ({
         producto_id: r.producto_id,
         nombre: r.nombre,
         codigo_comercial: r.codigo_comercial,
-        almacenes: r.almacenes,
-        total: Number(r.total),
+        total: Number(r.total ?? 0),
+        almacenes: r.almacenes.map((x: any) => ({
+          almacen_id: x.almacen_id,
+          cantidad: Number(x.cantidad ?? 0),
+        })),
       })),
+      almacenes: almacenes, // devuelvo los seleccionados por claridad
     };
   }
 }
