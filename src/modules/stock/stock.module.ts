@@ -46,6 +46,7 @@ import { MermasModule } from './movimientos/mermas/mermas.module';
 import { AjusteCambioModule } from './ajuste-cambio/ajuste-cambio.module';
 import { ReservasModule } from './reservas/reservas.module';
 import { EncontradosModule } from './conteos/encontrados/encontrados.module';
+import { TransferenciasPendientesModule } from './transferencias-pendientes/transferencias-pendientes.module';
 
 @Module({
   imports: [
@@ -66,7 +67,8 @@ import { EncontradosModule } from './conteos/encontrados/encontrados.module';
     MermasModule,
     AjusteCambioModule,
     ReservasModule,
-    EncontradosModule
+    EncontradosModule,
+    TransferenciasPendientesModule,
   ],
   controllers: [
     StockController,
