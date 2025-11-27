@@ -354,37 +354,34 @@ export class StockQueriesService {
 
 
     const sql = `
-    WITH prods AS (
-      SELECT p.id, p.nombre, p.codigo_comercial
-      FROM public.stk_productos p
-      WHERE p.activo = true
-      ORDER BY p.id
-    )
-    SELECT
-      p.id AS producto_id,
-      p.nombre,
-      p.codigo_comercial,
-      jsonb_agg(
-        jsonb_build_object(
-          'almacen_id', a.id,
-          'cantidad', COALESCE(sa.cantidad, 0)
-        )
-        ORDER BY a.id
-      ) AS almacenes,
-      -- TOTAL por producto (solo almacenes seleccionados)
-      SUM(COALESCE(sa.cantidad, 0)) AS total
-    FROM prods p
-    CROSS JOIN (
-      SELECT id FROM public.stk_almacenes
-      WHERE id IN (${almacenesListaSql})
-      ORDER BY id
-    ) a
-    LEFT JOIN public.stk_stock_actual sa
-      ON sa.producto_id = p.id
-     AND sa.almacen_id = a.id
-    GROUP BY p.id, p.nombre, p.codigo_comercial
-    ORDER BY p.id;
-  `;
+  WITH prods AS (
+    SELECT id, nombre, codigo_comercial
+    FROM public.stk_productos
+    WHERE activo = true
+  )
+  SELECT
+    p.id AS producto_id,
+    p.nombre,
+    p.codigo_comercial,
+    jsonb_agg(
+      jsonb_build_object(
+        'almacen_id', a.id,
+        'cantidad', COALESCE(sa.cantidad, 0)
+      )
+      ORDER BY a.id
+    ) AS almacenes,
+    SUM(COALESCE(sa.cantidad, 0)) AS total
+  FROM prods p
+  CROSS JOIN (
+    SELECT id FROM public.stk_almacenes
+    WHERE id IN (${almacenesListaSql})
+  ) a
+  LEFT JOIN public.stk_stock_actual sa
+    ON sa.producto_id = p.id
+   AND sa.almacen_id = a.id
+  GROUP BY p.id, p.nombre, p.codigo_comercial
+  ORDER BY p.id;
+`;
 
     const rows = await this.ds.query(sql);
 
