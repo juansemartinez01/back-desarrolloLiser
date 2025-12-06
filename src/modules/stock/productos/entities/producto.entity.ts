@@ -79,6 +79,14 @@ export class Producto {
   @Column({ type: 'int', default: 1 })
   selector_fiscal: number;
 
+  // Categoría fiscal visible en la planilla (C, Z, N…)
+  @Column({ type: 'varchar', length: 5, nullable: true })
+  categoria_fiscal?: string | null;
+
+  // Permite que un producto sea o no facturable
+  @Column({ type: 'boolean', default: true })
+  facturable: boolean;
+
   /*-------------------------*/
 
   @Column({
