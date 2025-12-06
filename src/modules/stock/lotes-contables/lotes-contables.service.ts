@@ -14,6 +14,7 @@ import {
   QueryLoteContableDto,
 } from './dto/lote-contable.dto';
 import { LoteContableEstado } from '../enums/lote-contable-estado.enum';
+import { QueryTipo1Dto } from './dto/query-tipo1.dto';
 
 function toDecimal4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -65,13 +66,13 @@ export class LotesContablesService {
 
   // OBTENER por id
   async obtener(id: string) {
-    try{
-    const lc = await this.ds
-      .getRepository(LoteContable)
-      .findOne({ where: { id } });
-    if (!lc) throw new NotFoundException('Lote contable no encontrado');
-    return lc;
-  }catch (e: any) {
+    try {
+      const lc = await this.ds
+        .getRepository(LoteContable)
+        .findOne({ where: { id } });
+      if (!lc) throw new NotFoundException('Lote contable no encontrado');
+      return lc;
+    } catch (e: any) {
       this.logger.error(
         `[GET /stock/lotes-contables/${id}] error`,
         e?.stack || String(e),
@@ -79,8 +80,7 @@ export class LotesContablesService {
       throw new BadRequestException(
         e?.detail || e?.message || 'Error obteniendo lote contable',
       );
-    
-  }
+    }
   }
   // CREAR (uno por lote físico)
   async crear(dto: CreateLoteContableDto) {
@@ -186,6 +186,126 @@ export class LotesContablesService {
     if (!lc) throw new NotFoundException('Lote contable no encontrado');
 
     await repo.remove(lc);
+    return { ok: true };
+  }
+
+  async productosConTipo1Extendido(q: QueryTipo1Dto) {
+    const qb = this.ds
+      .getRepository(LoteContable)
+      .createQueryBuilder('lc')
+      .innerJoin(StockLote, 'l', 'l.id = lc.lote_id')
+      .innerJoin('stk_productos', 'p', 'p.id = l.producto_id')
+      .leftJoin('stk_unidades', 'u', 'u.id = p.unidad_id')
+      .leftJoin('stk_tipos_producto', 'tp', 'tp.id = p.tipo_producto_id')
+      .select([
+        'p.id AS producto_id',
+        'p.nombre AS producto_nombre',
+        'p.codigo_comercial AS producto_codigo_comercial',
+
+        'u.codigo AS unidad_codigo',
+        'u.nombre AS unidad_nombre',
+
+        'tp.id AS tipo_producto_id',
+        'tp.nombre AS tipo_producto',
+
+        // SUM tipo1
+        'SUM(CAST(lc.cantidad_tipo1 AS numeric)) AS cantidad_tipo1_total',
+
+        // SUM facturada
+        'SUM(CAST(lc.cantidad_facturada AS numeric)) AS cantidad_facturada_total',
+
+        // pendiente = tipo1 - facturada
+        '(SUM(CAST(lc.cantidad_tipo1 AS numeric)) - SUM(CAST(lc.cantidad_facturada AS numeric))) AS pendiente_facturar',
+      ])
+      .groupBy('p.id')
+      .addGroupBy('u.codigo')
+      .addGroupBy('u.nombre')
+      .addGroupBy('tp.id')
+      .addGroupBy('tp.nombre')
+      .having(
+        '(SUM(CAST(lc.cantidad_tipo1 AS numeric)) - SUM(CAST(lc.cantidad_facturada AS numeric))) > 0',
+      )
+      .orderBy('p.nombre', 'ASC');
+
+    // ==== FILTROS ====
+    if (q.producto_id) {
+      qb.andWhere('p.id = :pid', { pid: q.producto_id });
+    }
+
+    if (q.tipo_producto_id) {
+      qb.andWhere('tp.id = :tpid', { tpid: q.tipo_producto_id });
+    }
+
+    if (q.empresa_factura) {
+      qb.andWhere('lc.empresa_factura = :ef', { ef: q.empresa_factura });
+    }
+
+    if (q.estado) {
+      qb.andWhere('lc.estado = :st', { st: q.estado });
+    }
+
+    if (q.desde) {
+      qb.andWhere('l.fecha_remito >= :desde', { desde: q.desde });
+    }
+
+    if (q.hasta) {
+      qb.andWhere('l.fecha_remito <= :hasta', { hasta: q.hasta });
+    }
+
+    // RESULTADO
+    return qb.getRawMany();
+  }
+
+  async registrarFacturacion(producto_id: number, cantidad: number) {
+    const repo = this.ds.getRepository(LoteContable);
+
+    // Traer todos los lotes contables con tipo1 > facturado
+    const lotes = await repo
+      .createQueryBuilder('lc')
+      .innerJoin(StockLote, 'l', 'l.id = lc.lote_id')
+      .where('l.producto_id = :pid', { pid: producto_id })
+      .andWhere(
+        'CAST(lc.cantidad_tipo1 AS numeric) > CAST(lc.cantidad_facturada AS numeric)',
+      )
+      .orderBy('l.fecha_remito', 'ASC') // FIFO
+      .getMany();
+
+    if (lotes.length === 0) {
+      throw new BadRequestException(
+        'No hay cantidad tipo1 disponible para facturar',
+      );
+    }
+
+    let restante = cantidad;
+
+    for (const lote of lotes) {
+      if (restante <= 0) break;
+
+      const disponible =
+        Number(lote.cantidad_tipo1) - Number(lote.cantidad_facturada);
+
+      const consumir = Math.min(disponible, restante);
+
+      lote.cantidad_facturada = (
+        Number(lote.cantidad_facturada) + consumir
+      ).toFixed(4);
+
+      // Actualizar estado si es necesario
+      const total = Number(lote.cantidad_total);
+      const vendida = Number(lote.cantidad_vendida); // ya existe
+      lote.estado = resolverEstado(total, vendida); // tu propia lógica
+
+      await repo.save(lote);
+
+      restante -= consumir;
+    }
+
+    if (restante > 0) {
+      throw new BadRequestException(
+        `No hay suficiente cantidad tipo1 para facturar. Faltaron ${restante}`,
+      );
+    }
+
     return { ok: true };
   }
 }

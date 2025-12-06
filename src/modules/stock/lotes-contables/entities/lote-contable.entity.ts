@@ -46,5 +46,6 @@ export class LoteContable extends BaseEntity {
   })
   estado: LoteContableEstado;
 
-  
+  @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
+  cantidad_facturada: string;
 }

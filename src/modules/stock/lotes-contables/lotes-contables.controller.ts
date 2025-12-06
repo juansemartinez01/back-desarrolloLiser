@@ -16,6 +16,7 @@ import {
   UpdateLoteContableDto,
   QueryLoteContableDto,
 } from './dto/lote-contable.dto';
+import { QueryTipo1Dto } from './dto/query-tipo1.dto';
 
 @Controller('stock/lotes-contables')
 export class LotesContablesController {
@@ -25,6 +26,11 @@ export class LotesContablesController {
   @Get()
   async listar(@Query() q: QueryLoteContableDto) {
     return this.service.listar(q);
+  }
+
+  @Get('tipo1')
+  async productosTipo1(@Query() q: QueryTipo1Dto) {
+    return this.service.productosConTipo1Extendido(q);
   }
 
   // GET /stock/lotes-contables/:id
@@ -37,6 +43,11 @@ export class LotesContablesController {
   @Post()
   async crear(@Body() dto: CreateLoteContableDto) {
     return this.service.crear(dto);
+  }
+
+  @Post('facturar')
+  async facturar(@Body() dto: { producto_id: number; cantidad: number }) {
+    return this.service.registrarFacturacion(dto.producto_id, dto.cantidad);
   }
 
   // PATCH /stock/lotes-contables/:id

@@ -6,6 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { HealthController } from './health/health.controller';
 import { StockModule } from './modules/stock/stock.module';
 import { CcModule } from './modules/cc/cc.module';
+import { CajaModule } from './modules/caja/caja.module';
 //import { OutboxModule } from './outbox/outbox.module';
 
 @Module({
@@ -24,6 +25,7 @@ import { CcModule } from './modules/cc/cc.module';
     DatabaseModule,
     StockModule,
     CcModule,
+    CajaModule
     //OutboxModule,
   ],
   controllers: [HealthController],
