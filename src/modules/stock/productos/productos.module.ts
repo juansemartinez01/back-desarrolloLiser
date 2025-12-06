@@ -13,13 +13,23 @@ import { UnidadesController } from './unidades.controller';
 
 import { TiposProductoService } from './tipos-producto.service';
 import { TiposProductoController } from './tipos-producto.controller';
+import { ProductoPrecioHistorial } from './entities/producto-precio-historial.entity';
+import { PrecioHistorialController } from './precio-historial.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Producto, Unidad, TipoProducto])],
+  imports: [
+    TypeOrmModule.forFeature([
+      Producto,
+      Unidad,
+      TipoProducto,
+      ProductoPrecioHistorial,
+    ]),
+  ],
   controllers: [
     ProductosController,
     UnidadesController,
     TiposProductoController,
+    PrecioHistorialController,
   ],
   providers: [ProductosService, UnidadesService, TiposProductoService],
   exports: [ProductosService, UnidadesService, TiposProductoService],

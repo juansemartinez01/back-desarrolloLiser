@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsInt,
   IsNumber,
+  IsNumberString,
   IsOptional,
   IsString,
   MaxLength,
@@ -52,8 +53,8 @@ export class CreateProductoDto {
   precio_vacio?: number;
 
   @IsOptional()
-  @IsInt()
-  id_interno?: number;
+  @IsString()
+  id_interno?: string;
 
   @IsOptional()
   @IsString()
@@ -62,4 +63,32 @@ export class CreateProductoDto {
   @IsOptional()
   @IsInt()
   proveedor_id?: number | null;
+
+  /** --------------------
+   * ADMINISTRATIVOS
+   * ------------------- */
+
+  @IsNumberString()
+  @IsOptional()
+  alicuota_iva?: string; // ej 21, 10.5
+
+  @IsBoolean()
+  @IsOptional()
+  exento_iva?: boolean;
+
+  @IsNumberString()
+  @IsOptional()
+  precio_compra?: string;
+
+  @IsNumberString()
+  @IsOptional()
+  precio_sin_iva?: string;
+
+  @IsNumberString()
+  @IsOptional()
+  precio_con_iva?: string;
+
+  @IsInt()
+  @IsOptional()
+  selector_fiscal?: number;
 }

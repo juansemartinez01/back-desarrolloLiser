@@ -44,8 +44,8 @@ export class Producto {
   @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
   precio_vacio: string;
 
-  @Column({ type: 'int', nullable: true })
-  id_interno?: number | null;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  id_interno?: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   empresa?: string | null;
@@ -53,6 +53,33 @@ export class Producto {
   // NUEVO: código comercial único (por negocio)
   @Column({ type: 'varchar', length: 120, nullable: true })
   codigo_comercial?: string | null;
+
+  /** -------------------------
+   *  NUEVOS CAMPOS ADMINISTRATIVOS
+   *  ------------------------- */
+
+  // IVA
+  @Column({ type: 'numeric', precision: 5, scale: 2, default: 21 })
+  alicuota_iva: string;
+
+  @Column({ type: 'boolean', default: false })
+  exento_iva: boolean;
+
+  // Precios administrativos
+  @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
+  precio_compra: string;
+
+  @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
+  precio_sin_iva: string;
+
+  @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
+  precio_con_iva: string;
+
+  // Selector fiscal (1 Venta Propia / 2 Liquidación / 3 Importación...)
+  @Column({ type: 'int', default: 1 })
+  selector_fiscal: number;
+
+  /*-------------------------*/
 
   @Column({
     type: 'timestamptz',

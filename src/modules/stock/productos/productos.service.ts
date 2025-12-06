@@ -11,6 +11,7 @@ import { UpdateProductoDto } from './dto/update-producto.dto';
 import { QueryProductosDto } from './dto/query-productos.dto';
 
 import { TipoProducto } from './entities/tipo-producto.entity';
+import { ProductoPrecioHistorial } from './entities/producto-precio-historial.entity';
 
 // Quita acentos de forma simple
 function quitarAcentos(txt: string): string {
@@ -57,17 +58,19 @@ function buildEmpresaCode(empresa?: string | null): string {
   return e.slice(0, 4); // GLAD, SYRU, etc.
 }
 
-function buildInternoCode(idInterno?: number | null): string {
-  const id = idInterno ?? 0;
-  return id.toString().padStart(5, '0'); // 00102
+function buildInternoCode(idInterno?: string | null): string {
+  if (!idInterno) return '00000';
+  const clean = idInterno.replace(/\D/g, ''); // solo números
+  return clean.padStart(5, '0');
 }
+
 
 export function generarCodigoComercial(opts: {
   tipoNombre: string;
   nombreProducto: string;
   proveedorId?: number | null;
   empresa?: string | null;
-  idInterno?: number | null;
+  idInterno?: string | null;
 }): string {
   const tipo = buildTipoPrefix(opts.tipoNombre);
   const nombre = buildNombreCode(opts.nombreProducto);
@@ -105,6 +108,19 @@ export class ProductosService {
       idInterno: dto.id_interno ?? null,
     });
 
+    /** IVA */
+    const alicuota = dto.alicuota_iva ?? '21';
+    const exento = dto.exento_iva ?? false;
+
+    /** Precios administrativos */
+    const precioCompra = this.toDecimal4(dto.precio_compra ?? 0);
+
+    const factorIva = exento ? 1 : 1 + Number(alicuota) / 100;
+    const precioSinIva = this.toDecimal4(dto.precio_sin_iva ?? precioCompra);
+    const precioConIva = this.toDecimal4(
+      dto.precio_con_iva ?? Number(precioCompra) * factorIva,
+    );
+
     const prod = repo.create({
       nombre: dto.nombre,
       precio_base: this.toDecimal4(dto.precio_base),
@@ -120,10 +136,25 @@ export class ProductosService {
       id_interno: dto.id_interno ?? null,
       empresa: dto.empresa ?? null,
       codigo_comercial: codigo,
+
+      // ADMINISTRATIVOS
+      alicuota_iva: alicuota,
+      exento_iva: exento,
+      precio_compra: precioCompra,
+      precio_sin_iva: precioSinIva,
+      precio_con_iva: precioConIva,
+      selector_fiscal: dto.selector_fiscal ?? 1,
     });
 
-    try {
-      return await repo.save(prod);
+try {
+  const nuevoProducto = await repo.save(prod);
+  await this.registrarHistorial(
+    nuevoProducto,
+    'CREACIÓN DE PRODUCTO',
+    'system',
+  );
+  return nuevoProducto;
+      
     } catch (e: any) {
       throw new BadRequestException(
         e?.detail || e?.message || 'Error creando producto',
@@ -185,12 +216,50 @@ export class ProductosService {
       prod.precio_vacio = this.toDecimal4(dto.precio_vacio);
     if (dto.id_interno !== undefined) prod.id_interno = dto.id_interno;
     if (dto.empresa !== undefined) prod.empresa = dto.empresa;
-    
+
+    // formateos
+    if (dto.precio_base !== undefined)
+      prod.precio_base = this.toDecimal4(dto.precio_base);
+
+    if (dto.precio_oferta !== undefined)
+      prod.precio_oferta = this.toDecimal4(dto.precio_oferta);
+
+    if (dto.precio_vacio !== undefined)
+      prod.precio_vacio = this.toDecimal4(dto.precio_vacio);
+
+    if (dto.precio_compra !== undefined)
+      prod.precio_compra = this.toDecimal4(dto.precio_compra);
+
+    if (dto.precio_sin_iva !== undefined)
+      prod.precio_sin_iva = this.toDecimal4(dto.precio_sin_iva);
+
+    if (dto.precio_con_iva !== undefined)
+      prod.precio_con_iva = this.toDecimal4(dto.precio_con_iva);
 
     prod.updated_at = new Date();
 
+    const huboCambioAdmin =
+      dto.precio_compra !== undefined ||
+      dto.precio_sin_iva !== undefined ||
+      dto.precio_con_iva !== undefined ||
+      dto.alicuota_iva !== undefined ||
+      dto.exento_iva !== undefined ||
+      dto.selector_fiscal !== undefined;
+    
+    
     try {
-      return await repo.save(prod);
+      
+      const actualizado = await repo.save(prod);
+
+      if (huboCambioAdmin) {
+        await this.registrarHistorial(
+          actualizado,
+          'MODIFICACIÓN ADMINISTRATIVA',
+          'system',
+        );
+      }
+
+      return actualizado;
     } catch (e: any) {
       throw new BadRequestException(
         e?.detail || e?.message || 'Error actualizando producto',
@@ -208,5 +277,27 @@ export class ProductosService {
     prod.updated_at = new Date();
     await repo.save(prod);
     return { ok: true };
+  }
+
+  private async registrarHistorial(
+    prod: Producto,
+    motivo: string,
+    usuario?: string,
+  ) {
+    const historialRepo = this.ds.getRepository(ProductoPrecioHistorial);
+
+    const registro = historialRepo.create({
+      codigo_comercial: prod.codigo_comercial!,
+      precio_compra: prod.precio_compra,
+      precio_sin_iva: prod.precio_sin_iva,
+      precio_con_iva: prod.precio_con_iva,
+      alicuota_iva: prod.alicuota_iva,
+      exento_iva: prod.exento_iva,
+      selector_fiscal: prod.selector_fiscal,
+      motivo,
+      usuario,
+    });
+
+    await historialRepo.save(registro);
   }
 }
