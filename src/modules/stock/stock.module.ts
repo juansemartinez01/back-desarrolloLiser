@@ -47,6 +47,9 @@ import { AjusteCambioModule } from './ajuste-cambio/ajuste-cambio.module';
 import { ReservasModule } from './reservas/reservas.module';
 import { EncontradosModule } from './conteos/encontrados/encontrados.module';
 import { TransferenciasPendientesModule } from './transferencias-pendientes/transferencias-pendientes.module';
+import { Sucursal } from '../sucursales/sucursal.entity';
+import { ProductosAdminController } from './productos/productos-admin.controller';
+import { ProductosAdminService } from './productos/productos-admin.service';
 
 @Module({
   imports: [
@@ -60,6 +63,7 @@ import { TransferenciasPendientesModule } from './transferencias-pendientes/tran
       StockActual,
       ConsumoPendiente,
       LoteContable,
+      Sucursal,
     ]),
     ProductosModule,
     MovimientosModule,
@@ -85,6 +89,7 @@ import { TransferenciasPendientesModule } from './transferencias-pendientes/tran
     TiposProductoController,
     LotesContablesController,
     LotesFisicosController,
+    ProductosAdminController,
   ],
   providers: [
     StockService,
@@ -101,6 +106,7 @@ import { TransferenciasPendientesModule } from './transferencias-pendientes/tran
     TiposProductoService,
     LotesContablesService,
     LotesFisicosService,
+    ProductosAdminService,
   ],
   exports: [RemitosService, StockQueriesService, VentasService, EstadosService],
 })
