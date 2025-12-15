@@ -50,6 +50,7 @@ import { TransferenciasPendientesModule } from './transferencias-pendientes/tran
 import { Sucursal } from '../sucursales/sucursal.entity';
 import { ProductosAdminController } from './productos/productos-admin.controller';
 import { ProductosAdminService } from './productos/productos-admin.service';
+import { Producto } from './productos/entities/producto.entity';
 
 @Module({
   imports: [
@@ -64,6 +65,8 @@ import { ProductosAdminService } from './productos/productos-admin.service';
       ConsumoPendiente,
       LoteContable,
       Sucursal,
+      Producto,
+      Almacen,
     ]),
     ProductosModule,
     MovimientosModule,
