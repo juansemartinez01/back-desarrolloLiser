@@ -1,5 +1,5 @@
 // src/caja/entities/caja-apertura.entity.ts
-import { Entity, Column, PrimaryGeneratedColumn, OneToMany, ManyToOne } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { CajaMovimiento } from './caja-movimiento.entity';
 import { CajaCierre } from './caja-cierre.entity';
 import { Sucursal } from 'src/modules/sucursales/sucursal.entity';
@@ -28,9 +28,10 @@ export class CajaApertura {
   cierres: CajaCierre[];
 
   // src/caja/entities/caja-apertura.entity.ts
-  @ManyToOne(() => Sucursal, (suc) => suc.aperturas, { eager: true })
-  sucursal: Sucursal;
+  @ManyToOne(() => Sucursal, { nullable: false, eager: true })
+  @JoinColumn({ name: 'sucursal_id' })
+  sucursal!: Sucursal;
 
-  @Column()
-  sucursalId: string;
+  @Column({ name: 'sucursal_id', type: 'uuid', nullable: false })
+  sucursalId!: string;
 }
