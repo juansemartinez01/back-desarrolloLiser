@@ -46,6 +46,7 @@ export class CajaService {
       saldoInicial: dto.saldoInicial,
       usuarioApertura: dto.usuario,
       abierta: true,
+      sucursalId: sucursal.id, // ✅ clave
       sucursal,
     });
 
