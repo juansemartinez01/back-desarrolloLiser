@@ -21,10 +21,11 @@ export class EmisoresService {
   // --- Helpers ---------------------------------------------------------------
   private async findByIdOrThrow(id: string) {
     const rows = await this.ds.query(
-      `SELECT id, cuit_computador, cuit_representado, nombre_publico, test, activo,
-              last_success_at, last_error, last_error_at, created_at, updated_at
+      `SELECT id, cuit_computador, cuit_representado, razon_social, test, activo,
+       last_success_at, last_error, last_error_at, created_at, updated_at
        FROM public.fac_emisores
-       WHERE id = $1`,
+       WHERE id = $1
+        `,
       [id],
     );
     if (!rows?.length) throw new NotFoundException('Emisor no encontrado');
@@ -44,21 +45,23 @@ export class EmisoresService {
 
     const [row] = await this.ds.query(
       `INSERT INTO public.fac_emisores
-         (cuit_computador, cuit_representado, cert_pem, key_pem, test, activo, nombre_publico)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id, cuit_computador, cuit_representado, nombre_publico, test, activo, created_at, updated_at`,
+     (cuit_computador, cuit_representado, razon_social, cert_content, key_content, test, activo)
+   VALUES ($1,$2,$3,$4,$5,$6,$7)
+   RETURNING id, cuit_computador, cuit_representado, razon_social, test, activo, created_at, updated_at`,
       [
         dto.cuit_computador,
-        dto.cuit_representado,
-        dto.cert_pem,
-        dto.key_pem,
+        dto.cuit_representado ?? null,
+        dto.nombre_publico ?? 'SIN NOMBRE', // si querés obligarlo, hacelo required en DTO
+        dto.cert_pem, // ✅ va a cert_content
+        dto.key_pem, // ✅ va a key_content
         dto.test ?? true,
         dto.activo ?? true,
-        dto.nombre_publico ?? null,
       ],
     );
-
     return { ok: true, emisor: row };
+
+
+    
   }
 
   async actualizar(id: string, dto: UpdateEmisorDto) {
@@ -95,9 +98,9 @@ export class EmisoresService {
 
     const [row] = await this.ds.query(
       `UPDATE public.fac_emisores
-       SET cuit_computador=$1, cuit_representado=$2, cert_pem=$3, key_pem=$4, test=$5, activo=$6, nombre_publico=$7, updated_at=now()
+       SET cuit_computador=$1, cuit_representado=$2, cert_content=$3, key_content=$4, test=$5, activo=$6, razon_social=$7, updated_at=now()
        WHERE id=$8
-       RETURNING id, cuit_computador, cuit_representado, nombre_publico, test, activo, created_at, updated_at`,
+       RETURNING id, cuit_computador, cuit_representado, razon_social, test, activo, created_at, updated_at`,
       [
         merged.cuit_computador,
         merged.cuit_representado,
