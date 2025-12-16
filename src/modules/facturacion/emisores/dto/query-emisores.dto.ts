@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsIn, IsOptional, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsIn, IsOptional, Min, IsString } from 'class-validator';
 
 export class QueryEmisoresDto {
   @IsOptional()
@@ -13,8 +13,8 @@ export class QueryEmisoresDto {
   cuit_representado?: number;
 
   @IsOptional()
-  @IsBoolean()
-  activo?: boolean;
+  @IsString()
+  activo?: string;
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
