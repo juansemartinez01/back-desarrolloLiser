@@ -7,6 +7,7 @@ import { HealthController } from './health/health.controller';
 import { StockModule } from './modules/stock/stock.module';
 import { CcModule } from './modules/cc/cc.module';
 import { CajaModule } from './modules/caja/caja.module';
+import { FacturacionModule } from './modules/facturacion/facturacion.module';
 //import { OutboxModule } from './outbox/outbox.module';
 
 @Module({
@@ -25,7 +26,8 @@ import { CajaModule } from './modules/caja/caja.module';
     DatabaseModule,
     StockModule,
     CcModule,
-    CajaModule
+    CajaModule,
+    FacturacionModule,
     //OutboxModule,
   ],
   controllers: [HealthController],
