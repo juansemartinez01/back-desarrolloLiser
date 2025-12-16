@@ -154,13 +154,16 @@ export class EmisoresService {
     const where = conds.join(' AND ');
 
     const listSql = `
-      SELECT e.id, e.cuit_computador, e.cuit_representado, e.nombre_publico, e.test, e.activo,
-             e.last_success_at, e.last_error, e.last_error_at, e.created_at, e.updated_at
-      FROM public.fac_emisores e
-      WHERE ${where}
-      ORDER BY e.created_at ${order}, e.id ${order}
-      LIMIT $${p++} OFFSET $${p++};
-    `;
+    SELECT e.id, e.cuit_computador, e.cuit_representado,
+          e.razon_social AS nombre_publico,  -- ✅ alias para tu API
+          e.test, e.activo,
+          e.last_success_at, e.last_error, e.last_error_at, e.created_at, e.updated_at
+    FROM public.fac_emisores e
+    WHERE ${where}
+    ORDER BY e.created_at ${order}, e.id ${order}
+    LIMIT $${p++} OFFSET $${p++};
+  `;
+
     const countSql = `SELECT COUNT(1)::int AS c FROM public.fac_emisores e WHERE ${where};`;
 
     const [rows, total] = await Promise.all([
@@ -180,9 +183,12 @@ export class EmisoresService {
   async setActivo(id: string, activo: boolean) {
     const [row] = await this.ds.query(
       `UPDATE public.fac_emisores SET activo=$1, updated_at=now() WHERE id=$2
-       RETURNING id, cuit_computador, cuit_representado, nombre_publico, test, activo, created_at, updated_at`,
+   RETURNING id, cuit_computador, cuit_representado,
+             razon_social AS nombre_publico,  -- ✅
+             test, activo, created_at, updated_at`,
       [activo, id],
     );
+
     if (!row) throw new NotFoundException('Emisor no encontrado');
     return { ok: true, emisor: row };
   }
@@ -192,21 +198,25 @@ export class EmisoresService {
   async registrarEnExterno(id: string, testOverride?: boolean) {
     // Traigo cert y key para enviar
     const rows = await this.ds.query(
-      `SELECT id, cuit_computador, cuit_representado, cert_pem, key_pem, test, activo
-       FROM public.fac_emisores WHERE id = $1`,
+      `SELECT id, cuit_computador, cuit_representado, cert_content, key_content, test, activo
+   FROM public.fac_emisores WHERE id = $1`,
       [id],
     );
+
     if (!rows?.length) throw new NotFoundException('Emisor no encontrado');
     const e = rows[0];
     if (!e.activo) throw new BadRequestException('Emisor inactivo');
 
     const payload = {
       cuit_computador: Number(e.cuit_computador),
-      cuit_representado: Number(e.cuit_representado),
-      cert_content: String(e.cert_pem),
-      key_content: String(e.key_pem),
+      cuit_representado: e.cuit_representado
+        ? Number(e.cuit_representado)
+        : null,
+      cert_content: String(e.cert_content),
+      key_content: String(e.key_content),
       test: typeof testOverride === 'boolean' ? testOverride : !!e.test,
     };
+
 
     try {
       // Llamada al cliente (Etapa 2)
