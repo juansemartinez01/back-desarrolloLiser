@@ -89,29 +89,41 @@ export class EmisoresService {
     const merged = {
       cuit_computador: dto.cuit_computador ?? current[0].cuit_computador,
       cuit_representado: dto.cuit_representado ?? current[0].cuit_representado,
-      cert_pem: dto.cert_pem ?? current[0].cert_pem,
-      key_pem: dto.key_pem ?? current[0].key_pem,
+
+      // ✅ NOMBRES REALES DE DB
+      cert_content: dto.cert_pem ?? current[0].cert_content,
+      key_content: dto.key_pem ?? current[0].key_content,
+      razon_social: dto.nombre_publico ?? current[0].razon_social,
+
       test: typeof dto.test === 'boolean' ? dto.test : current[0].test,
       activo: typeof dto.activo === 'boolean' ? dto.activo : current[0].activo,
-      nombre_publico: dto.nombre_publico ?? current[0].nombre_publico,
     };
+
 
     const [row] = await this.ds.query(
       `UPDATE public.fac_emisores
-       SET cuit_computador=$1, cuit_representado=$2, cert_content=$3, key_content=$4, test=$5, activo=$6, razon_social=$7, updated_at=now()
-       WHERE id=$8
-       RETURNING id, cuit_computador, cuit_representado, razon_social, test, activo, created_at, updated_at`,
+   SET cuit_computador=$1,
+       cuit_representado=$2,
+       cert_content=$3,
+       key_content=$4,
+       test=$5,
+       activo=$6,
+       razon_social=$7,
+       updated_at=now()
+   WHERE id=$8
+   RETURNING id, cuit_computador, cuit_representado, razon_social, test, activo, created_at, updated_at`,
       [
         merged.cuit_computador,
         merged.cuit_representado,
-        merged.cert_pem,
-        merged.key_pem,
+        merged.cert_content,
+        merged.key_content,
         merged.test,
         merged.activo,
-        merged.nombre_publico,
+        merged.razon_social,
         id,
       ],
     );
+
 
     return { ok: true, emisor: row };
   }
