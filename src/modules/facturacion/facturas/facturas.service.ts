@@ -36,7 +36,7 @@ export class FacturasService {
     // 1) Traer emisor
     const [emi] = await this.ds.query(
       `SELECT id, cuit_computador, cuit_representado, test, activo
-       FROM public.fac_emisores WHERE id = $1`,
+     FROM public.fac_emisores WHERE id = $1`,
       [dto.emisor_id],
     );
     if (!emi) throw new BadRequestException('Emisor inexistente');
@@ -46,10 +46,10 @@ export class FacturasService {
     if (dto.referencia_interna) {
       const dup = await this.ds.query(
         `SELECT id, estado FROM public.fac_facturas
-         WHERE emisor_id = $1 AND referencia_interna = $2
-           AND factura_tipo = COALESCE($3, factura_tipo)
-           AND punto_venta = COALESCE($4, punto_venta)
-         ORDER BY created_at DESC LIMIT 1`,
+       WHERE emisor_id = $1 AND referencia_interna = $2
+         AND factura_tipo = COALESCE($3, factura_tipo)
+         AND punto_venta = COALESCE($4, punto_venta)
+       ORDER BY created_at DESC LIMIT 1`,
         [
           dto.emisor_id,
           dto.referencia_interna,
@@ -66,6 +66,30 @@ export class FacturasService {
     const norm = dto.lista_productos.map(normalizeItem);
     const sums = resumir(norm);
 
+    // --- Cálculo de importes coherente con AFIP -------------------------------
+    const facturaTipo = dto.factura_tipo ?? 11; // 11 = C por defecto
+
+    const total = sums.total; // total con IVA
+    const netoBase = sums.total_neto; // neto calculado
+    const ivaBase = sums.total_iva; // IVA calculado
+
+    const importeNoGravadoBase = dto.importe_no_gravado ?? 0;
+    const importeExentoBase = dto.importe_exento ?? 0;
+    const importeTribBase = dto.importe_tributos ?? 0;
+
+    let importeTotal = total;
+    let importeNeto = netoBase;
+    let importeIva = ivaBase;
+    let importeNoGravado = importeNoGravadoBase;
+    let importeExento = importeExentoBase;
+    let importeTributos = importeTribBase;
+
+    // Para FACTURA C (11): ImpTotal = ImpNeto + ImpTrib, IVA = 0
+    if (facturaTipo === 11) {
+      importeIva = 0;
+      importeNeto = importeTotal - importeTributos;
+    }
+
     // 4) Insert cabecera + items en TX (estado PENDIENTE)
     const qr = this.ds.createQueryRunner();
     await qr.connect();
@@ -74,21 +98,21 @@ export class FacturasService {
     try {
       const [fac] = await qr.query(
         `INSERT INTO public.fac_facturas
-           (emisor_id, referencia_interna,
-            razon_social_receptor, doc_tipo, doc_nro, cond_iva_receptor,
-            factura_tipo, punto_venta, concepto, moneda, cotizacion,
-            importe_total, importe_neto, importe_iva,
-            importe_no_gravado, importe_exento, importe_tributos,
-            tipo_comprobante_original, pto_venta_original, nro_comprobante_original, cuit_receptor_comprobante_original,
-            estado)
-         VALUES ($1,$2,$3,COALESCE($4,99),COALESCE($5,0),COALESCE($6,5),
-                 COALESCE($7,11),COALESCE($8,1),COALESCE($9,1),
-                 COALESCE($10,'PES'),COALESCE($11,1),
-                 $12,$13,$14,
-                 COALESCE($15,0),COALESCE($16,0),COALESCE($17,0),
-                 $18,$19,$20,$21,
-                 'PENDIENTE')
-         RETURNING *`,
+         (emisor_id, referencia_interna,
+          razon_social_receptor, doc_tipo, doc_nro, cond_iva_receptor,
+          factura_tipo, punto_venta, concepto, moneda, cotizacion,
+          importe_total, importe_neto, importe_iva,
+          importe_no_gravado, importe_exento, importe_tributos,
+          tipo_comprobante_original, pto_venta_original, nro_comprobante_original, cuit_receptor_comprobante_original,
+          estado)
+       VALUES ($1,$2,$3,COALESCE($4,99),COALESCE($5,0),COALESCE($6,5),
+               COALESCE($7,11),COALESCE($8,1),COALESCE($9,1),
+               COALESCE($10,'PES'),COALESCE($11,1),
+               $12,$13,$14,
+               $15,$16,$17,
+               $18,$19,$20,$21,
+               'PENDIENTE')
+       RETURNING *`,
         [
           dto.emisor_id,
           dto.referencia_interna ?? null,
@@ -101,12 +125,12 @@ export class FacturasService {
           dto.concepto ?? null,
           dto.moneda ?? null,
           dto.cotizacion ?? null,
-          dec4(sums.total),
-          dec4(sums.total_neto),
-          dec4(sums.total_iva),
-          dto.importe_no_gravado ?? 0,
-          dto.importe_exento ?? 0,
-          dto.importe_tributos ?? 0,
+          dec4(importeTotal),
+          dec4(importeNeto),
+          dec4(importeIva),
+          dec4(importeNoGravado),
+          dec4(importeExento),
+          dec4(importeTributos),
           dto.tipo_comprobante_original ?? null,
           dto.pto_venta_original ?? null,
           dto.nro_comprobante_original ?? null,
@@ -117,11 +141,11 @@ export class FacturasService {
       for (const it of norm) {
         await qr.query(
           `INSERT INTO public.fac_facturas_items
-     (factura_id, codigo, producto, alicuota_iva, exento, consignacion,
-      cantidad, precio_unitario_total, precio_unitario_neto, iva_unitario,
-      total_neto, total_iva, total_con_iva)
-   VALUES ($1,$2,$3,$4,COALESCE($5,false),COALESCE($6,true),
-           $7,$8,$9,$10,$11,$12,$13)`,
+           (factura_id, codigo, producto, alicuota_iva, exento, consignacion,
+            cantidad, precio_unitario_total, precio_unitario_neto, iva_unitario,
+            total_neto, total_iva, total_con_iva)
+         VALUES ($1,$2,$3,$4,COALESCE($5,false),COALESCE($6,true),
+                 $7,$8,$9,$10,$11,$12,$13)`,
           [
             fac.id,
             (it as any).Codigo ?? null,
@@ -142,7 +166,6 @@ export class FacturasService {
             dec4(it.t_total),
           ],
         );
-
       }
 
       await qr.commitTransaction();
@@ -151,16 +174,16 @@ export class FacturasService {
       const payload = {
         cuit_computador: Number(emi.cuit_computador),
         cuit_representado: Number(emi.cuit_representado),
-        importe_total: Number(sums.total.toFixed(2)),
+        importe_total: Number(importeTotal.toFixed(2)),
         test: typeof dto.test === 'boolean' ? dto.test : !!emi.test,
         punto_venta: dto.punto_venta ?? 1,
-        factura_tipo: dto.factura_tipo ?? 11,
+        factura_tipo: facturaTipo,
         metodo_pago: 1,
-        importe_neto: Number(sums.total_neto.toFixed(2)),
-        importe_iva: Number(sums.total_iva.toFixed(2)),
-        importe_no_gravado: Number((dto.importe_no_gravado ?? 0).toFixed(2)),
-        importe_exento: Number((dto.importe_exento ?? 0).toFixed(2)),
-        importe_tributos: Number((dto.importe_tributos ?? 0).toFixed(2)),
+        importe_neto: Number(importeNeto.toFixed(2)),
+        importe_iva: Number(importeIva.toFixed(2)),
+        importe_no_gravado: Number(importeNoGravado.toFixed(2)),
+        importe_exento: Number(importeExento.toFixed(2)),
+        importe_tributos: Number(importeTributos.toFixed(2)),
         lista_productos: dto.lista_productos.map((x) => ({
           Codigo: x.Codigo ?? null,
           Producto: x.Producto ?? null,
@@ -206,17 +229,17 @@ export class FacturasService {
       // 7) Persistir salida AFIP
       const upd = await this.ds.query(
         `UPDATE public.fac_facturas
-           SET estado='ACEPTADA',
-               cae = $1,
-               cae_vencimiento = $2,
-               fecha_emision = $3,
-               qr_url = $4,
-               nro_comprobante = $5,
-               txt_venta = $6,
-               txt_alicuotas_venta = $7,
-               updated_at=now()
-         WHERE id = $8
-         RETURNING *`,
+         SET estado='ACEPTADA',
+             cae = $1,
+             cae_vencimiento = $2,
+             fecha_emision = $3,
+             qr_url = $4,
+             nro_comprobante = $5,
+             txt_venta = $6,
+             txt_alicuotas_venta = $7,
+             updated_at=now()
+       WHERE id = $8
+       RETURNING *`,
         [
           respuesta.cae ?? null,
           respuesta.vencimiento ? new Date(respuesta.vencimiento) : null,
