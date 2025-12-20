@@ -117,11 +117,11 @@ export class FacturasService {
       for (const it of norm) {
         await qr.query(
           `INSERT INTO public.fac_facturas_items
-             (factura_id, Codigo, Producto, AlicuotaIVA, Exento, Consignacion,
-              Cantidad, Precio_Unitario_Total, Precio_Unitario_Neto, IVA_Unitario,
-              total_neto, total_iva, total_con_iva)
-           VALUES ($1,$2,$3,$4,COALESCE($5,false),COALESCE($6,true),
-                   $7,$8,$9,$10,$11,$12,$13)`,
+     (factura_id, codigo, producto, alicuota_iva, exento, consignacion,
+      cantidad, precio_unitario_total, precio_unitario_neto, iva_unitario,
+      total_neto, total_iva, total_con_iva)
+   VALUES ($1,$2,$3,$4,COALESCE($5,false),COALESCE($6,true),
+           $7,$8,$9,$10,$11,$12,$13)`,
           [
             fac.id,
             (it as any).Codigo ?? null,
@@ -142,6 +142,7 @@ export class FacturasService {
             dec4(it.t_total),
           ],
         );
+
       }
 
       await qr.commitTransaction();
