@@ -30,4 +30,13 @@ export class FacEmisor extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   observacion?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_success_at?: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  last_error?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  last_error_at?: Date | null;
 }
