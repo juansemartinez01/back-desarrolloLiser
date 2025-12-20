@@ -40,11 +40,6 @@ export class LotesContablesController {
     return this.service.obtener(id);
   }
 
-  @Post('tipo1/seleccionar')
-  async seleccionarTipo1(@Body() dto: SeleccionarTipo1Dto) {
-    return this.service.seleccionarProductosTipo1(dto);
-  }
-
   // POST /stock/lotes-contables
   @Post()
   async crear(@Body() dto: CreateLoteContableDto) {
@@ -54,6 +49,11 @@ export class LotesContablesController {
   @Post('facturar')
   async facturar(@Body() dto: { producto_id: number; cantidad: number }) {
     return this.service.registrarFacturacion(dto.producto_id, dto.cantidad);
+  }
+
+  @Post('tipo1/seleccionar')
+  async seleccionarTipo1(@Body() dto: SeleccionarTipo1Dto) {
+    return this.service.seleccionarProductosTipo1(dto);
   }
 
   // PATCH /stock/lotes-contables/:id
