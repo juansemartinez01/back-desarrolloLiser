@@ -17,6 +17,7 @@ import {
   QueryLoteContableDto,
 } from './dto/lote-contable.dto';
 import { QueryTipo1Dto } from './dto/query-tipo1.dto';
+import { SeleccionarTipo1Dto } from './dto/seleccionar-tipo1.dto';
 
 @Controller('stock/lotes-contables')
 export class LotesContablesController {
@@ -37,6 +38,11 @@ export class LotesContablesController {
   @Get(':id')
   async obtener(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.obtener(id);
+  }
+
+  @Post('tipo1/seleccionar')
+  async seleccionarTipo1(@Body() dto: SeleccionarTipo1Dto) {
+    return this.service.seleccionarProductosTipo1(dto);
   }
 
   // POST /stock/lotes-contables

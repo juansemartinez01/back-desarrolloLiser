@@ -15,6 +15,7 @@ import {
 } from './dto/lote-contable.dto';
 import { LoteContableEstado } from '../enums/lote-contable-estado.enum';
 import { QueryTipo1Dto } from './dto/query-tipo1.dto';
+import { SeleccionarTipo1Dto } from './dto/seleccionar-tipo1.dto';
 
 function toDecimal4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -307,5 +308,165 @@ export class LotesContablesService {
     }
 
     return { ok: true };
+  }
+
+  async seleccionarProductosTipo1(dto: SeleccionarTipo1Dto) {
+    const { producto_ids, monto_objetivo } = dto;
+
+    if (!producto_ids?.length) {
+      throw new BadRequestException('producto_ids requerido');
+    }
+
+    if (monto_objetivo <= 0) {
+      throw new BadRequestException('monto_objetivo debe ser > 0');
+    }
+
+    // 1) Traer datos agregados + precio unitario
+    const qb = this.ds
+      .getRepository(LoteContable)
+      .createQueryBuilder('lc')
+      .innerJoin(StockLote, 'l', 'l.id = lc.lote_id')
+      .innerJoin('stk_productos', 'p', 'p.id = l.producto_id')
+      .leftJoin('stk_unidades', 'u', 'u.id = p.unidad_id')
+      .leftJoin('stk_tipos_producto', 'tp', 'tp.id = p.tipo_producto_id')
+      .select([
+        'p.id AS producto_id',
+        'p.nombre AS producto_nombre',
+        'p.codigo_comercial AS producto_codigo_comercial',
+
+        'u.codigo AS unidad_codigo',
+        'u.nombre AS unidad_nombre',
+
+        'tp.id AS tipo_producto_id',
+        'tp.nombre AS tipo_producto',
+
+        'SUM(CAST(lc.cantidad_tipo1 AS numeric)) AS cantidad_tipo1_total',
+        'SUM(CAST(lc.cantidad_facturada AS numeric)) AS cantidad_facturada_total',
+        '(SUM(CAST(lc.cantidad_tipo1 AS numeric)) - SUM(CAST(lc.cantidad_facturada AS numeric))) AS pendiente_facturar',
+
+        // precio que vamos a usar para el cálculo (ajustalo si querés otro)
+        'p.precio_con_iva AS precio_unitario',
+      ])
+      .where('p.id IN (:...ids)', { ids: producto_ids })
+      .groupBy('p.id')
+      .addGroupBy('u.codigo')
+      .addGroupBy('u.nombre')
+      .addGroupBy('tp.id')
+      .addGroupBy('tp.nombre')
+      .having(
+        '(SUM(CAST(lc.cantidad_tipo1 AS numeric)) - SUM(CAST(lc.cantidad_facturada AS numeric))) > 0',
+      )
+      .orderBy('p.nombre', 'ASC');
+
+    // filtros opcionales, igual que en el otro
+    if (dto.empresa_factura) {
+      qb.andWhere('lc.empresa_factura = :ef', { ef: dto.empresa_factura });
+    }
+    if (dto.estado) {
+      qb.andWhere('lc.estado = :st', { st: dto.estado });
+    }
+    if (dto.desde) {
+      qb.andWhere('l.fecha_remito >= :desde', { desde: dto.desde });
+    }
+    if (dto.hasta) {
+      qb.andWhere('l.fecha_remito <= :hasta', { hasta: dto.hasta });
+    }
+
+    const rows = await qb.getRawMany<{
+      producto_id: number;
+      producto_nombre: string;
+      producto_codigo_comercial: string | null;
+      unidad_codigo: string | null;
+      unidad_nombre: string | null;
+      tipo_producto_id: number;
+      tipo_producto: string;
+      cantidad_tipo1_total: string;
+      cantidad_facturada_total: string;
+      pendiente_facturar: string;
+      precio_unitario: string;
+    }>();
+
+    if (!rows.length) {
+      throw new BadRequestException(
+        'No hay productos tipo1 con pendiente_facturar > 0 para los IDs enviados',
+      );
+    }
+
+    // 2) Preparar datos numéricos
+    let disponibles = rows
+      .map((r) => ({
+        ...r,
+        pendiente: Number(r.pendiente_facturar),
+        precio: Number(r.precio_unitario),
+      }))
+      .filter((r) => r.pendiente > 0 && r.precio > 0);
+
+    if (!disponibles.length) {
+      throw new BadRequestException(
+        'Los productos seleccionados no tienen pendiente_facturar o precio válido',
+      );
+    }
+
+    // 3) Randomizar el orden de productos (aleatoriedad)
+    disponibles = this.shuffle(disponibles);
+
+    // 4) Algoritmo greedy hasta llegar (o aproximarse) al monto
+    let restante = monto_objetivo;
+    const itemsSeleccionados: any[] = [];
+
+    const precioMinimo = Math.min(...disponibles.map((r) => r.precio));
+
+    for (const prod of disponibles) {
+      if (restante < precioMinimo) break;
+      if (prod.pendiente <= 0 || prod.precio <= 0) continue;
+
+      // Máxima cantidad permitida por dinero disponible
+      const maxQtyPorDinero =
+        Math.floor((restante / prod.precio) * 10000) / 10000;
+      const maxQty = Math.min(prod.pendiente, maxQtyPorDinero);
+
+      if (maxQty <= 0) continue;
+
+      const cantidad = maxQty; // si quisieras más aleatorio, acá podrías elegir random <= maxQty
+
+      const subtotal = cantidad * prod.precio;
+
+      itemsSeleccionados.push({
+        producto_id: prod.producto_id,
+        producto_nombre: prod.producto_nombre,
+        unidad_codigo: prod.unidad_codigo,
+        unidad_nombre: prod.unidad_nombre,
+        tipo_producto_id: prod.tipo_producto_id,
+        tipo_producto: prod.tipo_producto,
+        cantidad: Number(cantidad.toFixed(4)),
+        precio_unitario: Number(prod.precio.toFixed(4)),
+        subtotal: Number(subtotal.toFixed(2)),
+        pendiente_disponible_original: Number(prod.pendiente.toFixed(4)),
+      });
+
+      restante -= subtotal;
+    }
+
+    const totalSeleccionado = itemsSeleccionados.reduce(
+      (acc, it) => acc + it.subtotal,
+      0,
+    );
+
+    return {
+      monto_objetivo,
+      total_seleccionado: Number(totalSeleccionado.toFixed(2)),
+      diferencia: Number((monto_objetivo - totalSeleccionado).toFixed(2)),
+      items: itemsSeleccionados,
+    };
+  }
+
+  // Fisher–Yates shuffle
+  private shuffle<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
   }
 }
