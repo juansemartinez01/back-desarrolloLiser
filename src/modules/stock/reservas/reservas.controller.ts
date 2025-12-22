@@ -3,6 +3,7 @@ import { ReservasService } from './reservas.service';
 import { ReservarStockDto } from './dto/reservar-stock.dto';
 import { CancelarReservaDto } from './dto/cancelar-reserva.dto';
 import { ConfirmarReservaDto } from './dto/confirmar-reserva.dto';
+import { QueryReservasDetalleDto } from './dto/query-reservas-detalle.dto';
 
 @Controller('reservas')
 export class ReservasController {
@@ -27,7 +28,7 @@ export class ReservasController {
   stockPorAlmacen(@Query('almacen_id', ParseIntPipe) almacen_id: number) {
     return this.service.stockPorAlmacen(almacen_id);
   }
-  
+
   @Get('pendientes/:pedido_id')
   listarPorPedido(@Param('pedido_id') pedido_id: number) {
     return this.service.listarPorPedido(pedido_id);
@@ -44,5 +45,11 @@ export class ReservasController {
   @Get()
   listar() {
     return this.service.listar();
+  }
+
+  // NUEVO: listado de reservas con detalle de producto
+  @Get('con-detalle')
+  listarConDetalle(@Query() q: QueryReservasDetalleDto) {
+    return this.service.listarConDetalle(q);
   }
 }

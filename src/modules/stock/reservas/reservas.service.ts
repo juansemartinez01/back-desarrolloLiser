@@ -5,6 +5,7 @@ import { ReservaStock } from './reserva-stock.entity';
 import { ReservarStockDto } from './dto/reservar-stock.dto';
 import { CancelarReservaDto } from './dto/cancelar-reserva.dto';
 import { ConfirmarReservaDto } from './dto/confirmar-reserva.dto';
+import { QueryReservasDetalleDto } from './dto/query-reservas-detalle.dto';
 
 @Injectable()
 export class ReservasService {
@@ -207,6 +208,72 @@ export class ReservasService {
       stock_real: Number(r.stock_real || 0),
       stock_reservado: Number(r.stock_reservado || 0),
       stock_disponible: Number(r.stock_disponible || 0),
+    }));
+  }
+
+  // =====================================================
+  // =============== 8) LISTADO CON DETALLE ==============
+  // =====================================================
+  /**
+   * Lista reservas con información de producto,
+   * filtrando opcionalmente por almacén, pedido y estado.
+   */
+  async listarConDetalle(q: QueryReservasDetalleDto) {
+    const params: any[] = [];
+    const where: string[] = ['1 = 1'];
+
+    if (q.almacen_id != null) {
+      params.push(q.almacen_id);
+      where.push(`r.almacen_id = $${params.length}`);
+    }
+
+    if (q.pedido_id != null) {
+      params.push(q.pedido_id);
+      where.push(`r.pedido_id = $${params.length}`);
+    }
+
+    if (q.estado) {
+      params.push(q.estado);
+      where.push(`r.estado = $${params.length}`);
+    }
+
+    const sql = `
+      SELECT
+        r.id,
+        r.producto_id,
+        r.almacen_id,
+        r.cantidad_reservada,
+        r.lote_id,
+        r.pedido_id,
+        r.estado,
+        r.created_at,
+        r.updated_at,
+        p.nombre          AS producto_nombre,
+        p.codigo_comercial AS producto_codigo_comercial
+      FROM public.stk_stock_reservado r
+      LEFT JOIN public.stk_productos p
+        ON p.id = r.producto_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY r.created_at DESC
+    `;
+
+    const rows = await this.ds.query(sql, params);
+
+    // Normalizo/estructura la respuesta
+    return rows.map((r: any) => ({
+      id: Number(r.id),
+      producto_id: Number(r.producto_id),
+      almacen_id: Number(r.almacen_id),
+      pedido_id: r.pedido_id != null ? Number(r.pedido_id) : null,
+      lote_id: r.lote_id,
+      estado: r.estado as 'RESERVADO' | 'CANCELADO' | 'CONSUMIDO',
+      cantidad_reservada: Number(r.cantidad_reservada),
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      producto: {
+        nombre: r.producto_nombre,
+        codigo_comercial: r.producto_codigo_comercial,
+      },
     }));
   }
 }
