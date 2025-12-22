@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { ReservasService } from './reservas.service';
 import { ReservarStockDto } from './dto/reservar-stock.dto';
 import { CancelarReservaDto } from './dto/cancelar-reserva.dto';
@@ -23,6 +23,11 @@ export class ReservasController {
     return this.service.confirmar(dto);
   }
 
+  @Get('stock-por-almacen')
+  stockPorAlmacen(@Query('almacen_id', ParseIntPipe) almacen_id: number) {
+    return this.service.stockPorAlmacen(almacen_id);
+  }
+  
   @Get('pendientes/:pedido_id')
   listarPorPedido(@Param('pedido_id') pedido_id: number) {
     return this.service.listarPorPedido(pedido_id);
