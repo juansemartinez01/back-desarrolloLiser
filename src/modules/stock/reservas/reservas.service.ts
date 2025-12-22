@@ -218,9 +218,9 @@ export class ReservasService {
    * Lista reservas con información de producto,
    * filtrando opcionalmente por almacén, pedido y estado.
    */
-  async listarConDetalle(q: QueryReservasDetalleDto) {
+  async listarConDetalleAgrupado(q: QueryReservasDetalleDto) {
     const params: any[] = [];
-    const where: string[] = ['1 = 1'];
+    const where: string[] = ['1 = 1', 'r.pedido_id IS NOT NULL'];
 
     if (q.almacen_id != null) {
       params.push(q.almacen_id);
@@ -248,19 +248,19 @@ export class ReservasService {
         r.estado,
         r.created_at,
         r.updated_at,
-        p.nombre          AS producto_nombre,
+        p.nombre           AS producto_nombre,
         p.codigo_comercial AS producto_codigo_comercial
       FROM public.stk_stock_reservado r
       LEFT JOIN public.stk_productos p
         ON p.id = r.producto_id
       WHERE ${where.join(' AND ')}
-      ORDER BY r.created_at DESC
+      ORDER BY r.pedido_id DESC, r.created_at DESC
     `;
 
     const rows = await this.ds.query(sql, params);
 
-    // Normalizo/estructura la respuesta
-    return rows.map((r: any) => ({
+    // Primero normalizamos cada reserva
+    const reservas = rows.map((r: any) => ({
       id: Number(r.id),
       producto_id: Number(r.producto_id),
       almacen_id: Number(r.almacen_id),
@@ -275,5 +275,22 @@ export class ReservasService {
         codigo_comercial: r.producto_codigo_comercial,
       },
     }));
+
+    // Luego agrupamos por pedido_id
+    const map = new Map<number, { pedido_id: number; reservas: any[] }>();
+
+    for (const r of reservas) {
+      if (r.pedido_id == null) continue; // por las dudas
+      if (!map.has(r.pedido_id)) {
+        map.set(r.pedido_id, {
+          pedido_id: r.pedido_id,
+          reservas: [],
+        });
+      }
+      map.get(r.pedido_id)!.reservas.push(r);
+    }
+
+    // Devolvemos un array de grupos
+    return Array.from(map.values());
   }
 }

@@ -48,8 +48,8 @@ export class ReservasController {
   }
 
   // NUEVO: listado de reservas con detalle de producto
-  @Get('con-detalle')
-  listarConDetalle(@Query() q: QueryReservasDetalleDto) {
-    return this.service.listarConDetalle(q);
+  @Get('con-detalle/agrupadas')
+  listarConDetalleAgrupado(@Query() q: QueryReservasDetalleDto) {
+    return this.service.listarConDetalleAgrupado(q);
   }
 }
