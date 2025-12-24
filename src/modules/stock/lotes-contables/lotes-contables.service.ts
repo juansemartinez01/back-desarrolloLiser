@@ -209,6 +209,11 @@ export class LotesContablesService {
         'tp.id AS tipo_producto_id',
         'tp.nombre AS tipo_producto',
 
+        // precios administrativos del producto
+        'p.precio_compra AS precio_compra',
+        'p.precio_sin_iva AS precio_sin_iva',
+        'p.precio_con_iva AS precio_con_iva',
+
         // SUM tipo1
         'SUM(CAST(lc.cantidad_tipo1 AS numeric)) AS cantidad_tipo1_total',
 
@@ -219,6 +224,11 @@ export class LotesContablesService {
         '(SUM(CAST(lc.cantidad_tipo1 AS numeric)) - SUM(CAST(lc.cantidad_facturada AS numeric))) AS pendiente_facturar',
       ])
       .groupBy('p.id')
+      .addGroupBy('p.nombre')
+      .addGroupBy('p.codigo_comercial')
+      .addGroupBy('p.precio_compra')
+      .addGroupBy('p.precio_sin_iva')
+      .addGroupBy('p.precio_con_iva')
       .addGroupBy('u.codigo')
       .addGroupBy('u.nombre')
       .addGroupBy('tp.id')
