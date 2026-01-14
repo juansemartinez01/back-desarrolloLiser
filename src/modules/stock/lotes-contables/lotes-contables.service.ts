@@ -203,6 +203,15 @@ export class LotesContablesService {
         'p.nombre AS producto_nombre',
         'p.codigo_comercial AS producto_codigo_comercial',
 
+        // ✅ NUEVO: empresa + campos útiles (no rompen nada)
+        'p.empresa AS producto_empresa',
+        'p.activo AS producto_activo',
+        'p.facturable AS producto_facturable',
+        'p.selector_fiscal AS producto_selector_fiscal',
+        'p.categoria_fiscal AS producto_categoria_fiscal',
+        'p.alicuota_iva AS producto_alicuota_iva',
+        'p.exento_iva AS producto_exento_iva',
+
         'u.codigo AS unidad_codigo',
         'u.nombre AS unidad_nombre',
 
@@ -226,6 +235,16 @@ export class LotesContablesService {
       .groupBy('p.id')
       .addGroupBy('p.nombre')
       .addGroupBy('p.codigo_comercial')
+
+      // ✅ NUEVO: groupBy para los campos agregados
+      .addGroupBy('p.empresa')
+      .addGroupBy('p.activo')
+      .addGroupBy('p.facturable')
+      .addGroupBy('p.selector_fiscal')
+      .addGroupBy('p.categoria_fiscal')
+      .addGroupBy('p.alicuota_iva')
+      .addGroupBy('p.exento_iva')
+
       .addGroupBy('p.precio_compra')
       .addGroupBy('p.precio_sin_iva')
       .addGroupBy('p.precio_con_iva')
