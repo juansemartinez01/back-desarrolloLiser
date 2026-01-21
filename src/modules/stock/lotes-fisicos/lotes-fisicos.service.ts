@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, SelectQueryBuilder, ObjectLiteral } from 'typeorm';
 import { StockLote } from '../stock-actual/entities/stock-lote.entity';
 import { LoteAlmacen } from './entities/lote-almacen.entity';
 import { Producto } from '../productos/entities/producto.entity';
@@ -9,10 +9,67 @@ import { RemitoItem } from '../remitos/entities/remito-item.entity';
 import { Remito } from '../remitos/entities/remito.entity';
 import { QueryLotesFisicosDto } from './dto/query-lotes-fisicos.dto';
 
+
+
 @Injectable()
 export class LotesFisicosService {
   constructor(private readonly ds: DataSource) {}
 
+  private applyLoteFilters<T extends ObjectLiteral>(
+    qb: SelectQueryBuilder<T>,
+    q: QueryLotesFisicosDto,
+  ) {
+    // BaseEntity
+    if (q.id) qb.andWhere('l.id = :id', { id: q.id });
+
+    if (q.created_desde)
+      qb.andWhere('l.created_at >= :cd', { cd: q.created_desde });
+    if (q.created_hasta)
+      qb.andWhere('l.created_at <= :ch', { ch: q.created_hasta });
+
+    if (q.updated_desde)
+      qb.andWhere('l.updated_at >= :ud', { ud: q.updated_desde });
+    if (q.updated_hasta)
+      qb.andWhere('l.updated_at <= :uh', { uh: q.updated_hasta });
+
+    if (q.version !== undefined)
+      qb.andWhere('l.version = :v', { v: q.version });
+    if (q.version_desde !== undefined)
+      qb.andWhere('l.version >= :vd', { vd: q.version_desde });
+    if (q.version_hasta !== undefined)
+      qb.andWhere('l.version <= :vh', { vh: q.version_hasta });
+
+    // StockLote
+    if (q.producto_id)
+      qb.andWhere('l.producto_id = :pid', { pid: q.producto_id });
+
+    if (q.bloqueado !== undefined) {
+      qb.andWhere('l.bloqueado = :bloq', { bloq: q.bloqueado });
+    }
+
+    if (q.solo_con_stock) {
+      qb.andWhere('l.cantidad_disponible > 0');
+    }
+
+    if (q.fecha_desde)
+      qb.andWhere('l.fecha_remito >= :fd', { fd: q.fecha_desde });
+    if (q.fecha_hasta)
+      qb.andWhere('l.fecha_remito <= :fh', { fh: q.fecha_hasta });
+
+    if (q.almacen_id) {
+      qb.andWhere(
+        `EXISTS (
+         SELECT 1 FROM public.stk_lote_almacen la
+         WHERE la.lote_id = l.id
+           AND la.almacen_id = :alm
+           AND la.cantidad_disponible > 0
+       )`,
+        { alm: q.almacen_id },
+      );
+    }
+
+    return qb;
+  }
   /**
    * Listado de lotes físicos con datos de producto, unidad y tipo.
    */
@@ -28,40 +85,20 @@ export class LotesFisicosService {
       .leftJoin(Unidad, 'u', 'u.id = p.unidad_id')
       .leftJoin(TipoProducto, 'tp', 'tp.id = p.tipo_producto_id');
 
-    // Filtros
-    if (q.producto_id) {
-      qb.andWhere('l.producto_id = :pid', { pid: q.producto_id });
-    }
-
-    if (q.solo_con_stock) {
-      qb.andWhere('l.cantidad_disponible > 0');
-    }
-
-    if (q.almacen_id) {
-      qb.andWhere(
-        `EXISTS (
-           SELECT 1 FROM public.stk_lote_almacen la
-           WHERE la.lote_id = l.id
-             AND la.almacen_id = :alm
-             AND la.cantidad_disponible > 0
-         )`,
-        { alm: q.almacen_id },
-      );
-    }
+    // ✅ todos los filtros pedidos (BaseEntity + StockLote)
+    this.applyLoteFilters(qb, q);
 
     // Subselect: cantidad en el almacén filtrado (o total si no hay filtro)
     const cantidadEnAlmacenExpr = q.almacen_id
       ? `(SELECT COALESCE(SUM(la.cantidad_disponible),0)
-          FROM public.stk_lote_almacen la
-         WHERE la.lote_id = l.id
-           AND la.almacen_id = :alm_sub)`
+        FROM public.stk_lote_almacen la
+       WHERE la.lote_id = l.id
+         AND la.almacen_id = :alm_sub)`
       : `(SELECT COALESCE(SUM(la.cantidad_disponible),0)
-          FROM public.stk_lote_almacen la
-         WHERE la.lote_id = l.id)`;
+        FROM public.stk_lote_almacen la
+       WHERE la.lote_id = l.id)`;
 
-    if (q.almacen_id) {
-      qb.setParameter('alm_sub', q.almacen_id);
-    }
+    if (q.almacen_id) qb.setParameter('alm_sub', q.almacen_id);
 
     qb.select([
       'l.id AS lote_id',
@@ -69,6 +106,9 @@ export class LotesFisicosService {
       'l.cantidad_inicial AS cantidad_inicial',
       'l.cantidad_disponible AS cantidad_disponible',
       'l.bloqueado AS bloqueado',
+      'l.created_at AS created_at',
+      'l.updated_at AS updated_at',
+      'l.version AS version',
 
       'p.id AS producto_id',
       'p.nombre AS producto_nombre',
@@ -84,33 +124,15 @@ export class LotesFisicosService {
       `${cantidadEnAlmacenExpr} AS cantidad_en_almacen`,
     ])
       .orderBy('l.fecha_remito', 'DESC')
-      .addOrderBy('p.nombre', 'ASC')
+      .addOrderBy('l.created_at', 'DESC')
       .offset(skip)
       .limit(limit);
 
     const data = await qb.getRawMany();
 
-    // Total para paginación (mismos filtros pero COUNT)
+    // Count con mismos filtros (sin joins innecesarios)
     const countQb = this.ds.getRepository(StockLote).createQueryBuilder('l');
-
-    if (q.producto_id) {
-      countQb.andWhere('l.producto_id = :pid', { pid: q.producto_id });
-    }
-    if (q.solo_con_stock) {
-      countQb.andWhere('l.cantidad_disponible > 0');
-    }
-    if (q.almacen_id) {
-      countQb.andWhere(
-        `EXISTS (
-           SELECT 1 FROM public.stk_lote_almacen la
-           WHERE la.lote_id = l.id
-             AND la.almacen_id = :alm
-             AND la.cantidad_disponible > 0
-         )`,
-        { alm: q.almacen_id },
-      );
-    }
-
+    this.applyLoteFilters(countQb, q);
     const total = await countQb.getCount();
 
     return { data, total, page, limit };
