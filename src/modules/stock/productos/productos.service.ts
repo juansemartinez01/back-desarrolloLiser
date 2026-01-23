@@ -12,6 +12,7 @@ import { QueryProductosDto } from './dto/query-productos.dto';
 
 import { TipoProducto } from './entities/tipo-producto.entity';
 import { ProductoPrecioHistorial } from './entities/producto-precio-historial.entity';
+import { OutboxEvent } from '../outbox/outbox-event.entity';
 
 // Quita acentos de forma simple
 function quitarAcentos(txt: string): string {
@@ -148,14 +149,38 @@ export class ProductosService {
 
 try {
   const nuevoProducto = await repo.save(prod);
+
+  // luego de `const nuevoProducto = await repo.save(prod);`
+
+  await this.ds.getRepository(OutboxEvent).save({
+    aggregate_type: 'Producto',
+    aggregate_id: String(nuevoProducto.id),
+    event_type: 'PRODUCTO_UPSERT_VENTAS',
+    payload: {
+      codigo_comercial: nuevoProducto.codigo_comercial,
+      nombre: nuevoProducto.nombre,
+      unidadId: nuevoProducto.unidad_id,
+      tipoProductoId: nuevoProducto.tipo_producto_id,
+      precio_base: Number(nuevoProducto.precio_base),
+      descripcion: nuevoProducto.descripcion ?? null,
+      vacio: nuevoProducto.vacio,
+      oferta: nuevoProducto.oferta,
+      precio_oferta: Number(nuevoProducto.precio_oferta ?? 0),
+      activo: nuevoProducto.activo,
+      imagen: nuevoProducto.imagen ?? null,
+      precioVacio: Number(nuevoProducto.precio_vacio ?? 0),
+      empresa: nuevoProducto.empresa ?? null,
+      id_interno: nuevoProducto.id_interno ?? '',
+    },
+  });
+
   await this.registrarHistorial(
     nuevoProducto,
     'CREACIÓN DE PRODUCTO',
     'system',
   );
   return nuevoProducto;
-      
-    } catch (e: any) {
+} catch (e: any) {
       throw new BadRequestException(
         e?.detail || e?.message || 'Error creando producto',
       );
