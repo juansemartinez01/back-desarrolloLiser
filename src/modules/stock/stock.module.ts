@@ -52,6 +52,8 @@ import { ProductosAdminController } from './productos/productos-admin.controller
 import { ProductosAdminService } from './productos/productos-admin.service';
 import { Producto } from './productos/entities/producto.entity';
 import { OutboxEvent } from './outbox/outbox-event.entity';
+import { OutboxSenderService } from './outbox/outbox-sender.service';
+import { OutboxCronService } from './outbox/outbox-cron.service';
 
 @Module({
   imports: [
@@ -95,6 +97,7 @@ import { OutboxEvent } from './outbox/outbox-event.entity';
     LotesContablesController,
     LotesFisicosController,
     ProductosAdminController,
+    
   ],
   providers: [
     StockService,
@@ -112,6 +115,8 @@ import { OutboxEvent } from './outbox/outbox-event.entity';
     LotesContablesService,
     LotesFisicosService,
     ProductosAdminService,
+    OutboxSenderService,
+    OutboxCronService,
   ],
   exports: [RemitosService, StockQueriesService, VentasService, EstadosService],
 })
