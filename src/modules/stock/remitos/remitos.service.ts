@@ -100,7 +100,7 @@ export class RemitosService {
 
         const lotes: any[] = [];
         // TIPO_1
-        await qr.query(
+        const l1 =await qr.query(
           `INSERT INTO public.stk_lotes
     (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
    VALUES ($1,$2,$3,$4,$5,$5)
@@ -114,8 +114,10 @@ export class RemitosService {
           ],
         );
 
+        lotes.push(l1[0]);
+
         // TIPO_2
-        await qr.query(
+        const l2 = await qr.query(
           `INSERT INTO public.stk_lotes
     (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
    VALUES ($1,$2,$3,$4,$5,$5)
@@ -129,6 +131,7 @@ export class RemitosService {
           ],
         );
 
+        lotes.push(l2[0]);
         itemsOut.push({ ...itemRow[0], lotes });
       }
 
