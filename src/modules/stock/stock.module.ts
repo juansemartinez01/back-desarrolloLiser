@@ -51,6 +51,7 @@ import { Sucursal } from '../sucursales/sucursal.entity';
 import { ProductosAdminController } from './productos/productos-admin.controller';
 import { ProductosAdminService } from './productos/productos-admin.service';
 import { Producto } from './productos/entities/producto.entity';
+import { OutboxEvent } from './outbox/outbox-event.entity';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { Producto } from './productos/entities/producto.entity';
       Sucursal,
       Producto,
       Almacen,
+      OutboxEvent,
     ]),
     ProductosModule,
     MovimientosModule,
