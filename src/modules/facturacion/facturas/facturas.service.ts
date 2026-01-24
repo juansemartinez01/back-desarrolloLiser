@@ -334,7 +334,7 @@ export class FacturasService {
   }
 
   async consultarCondicionIva(dto: ConsultarCondicionIvaDto) {
-    const baseRaw = (process.env.FACTURACION_API_BASE ?? '').trim();
+    const baseRaw = (process.env.FACT_EXT_BASE_URL ?? '').trim();
 
     if (!baseRaw) {
       // 502 no es lo ideal si es config local -> mejor 400/500. Acá te lo marco claro.
