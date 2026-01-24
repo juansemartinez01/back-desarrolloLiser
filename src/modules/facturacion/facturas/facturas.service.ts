@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -9,6 +10,8 @@ import { QueryFacturasDto } from './dto/query-facturas.dto';
 import { FactuExternalClient } from '../http/factu-external.client';
 import { ApiLoggerService } from '../services/api-logger.service';
 import { normalizeItem, resumir } from './utils/factura-calc.util';
+import { ConsultarCondicionIvaDto } from '../emisores/dto/consultar-condicion-iva.dto';
+import axios from 'axios';
 
 function dec4(n: number | string) {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -329,4 +332,33 @@ export class FacturasService {
     );
     return { factura: fac[0], items };
   }
+
+
+  async consultarCondicionIva(dto: ConsultarCondicionIvaDto) {
+  try {
+    const response = await axios.post(
+      `${process.env.FACTURACION_API_BASE}/consultar-condicion-iva`,
+      {
+        cuit_consulta: dto.cuit_consulta,
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.FACTURACION_API_KEY,
+        },
+        timeout: 15000,
+      },
+    );
+
+    return response.data;
+  } catch (err: any) {
+    const detail =
+      err?.response?.data ??
+      err?.message ??
+      'Error consultando condición IVA';
+
+    throw new BadGatewayException(detail);
+  }
+  
+}
 }
