@@ -25,12 +25,15 @@ function dec6(n: number | string) {
 
 @Injectable()
 export class FacturasService {
+  private readonly logger = new Logger(FacturasService.name);
+
   constructor(
-    
     private readonly ds: DataSource,
     private readonly ext: FactuExternalClient,
-    private readonly logger = new Logger(FacturasService.name)
   ) {}
+  
+  
+
 
   // --- Crear + Emitir --------------------------------------------------------
   async crearYEmitir(dto: CreateFacturaDto) {
@@ -349,7 +352,18 @@ export class FacturasService {
         ? baseRaw
         : `https://${baseRaw}`;
 
-    const url = `${base.replace(/\/+$/, '')}/consultar-condicion-iva`;
+    let url: string;
+    try {
+      url = `${base.replace(/\/+$/, '')}/consultar-condicion-iva`;
+      new URL(url); // valida formato
+    } catch {
+      throw new BadRequestException(
+        `FACT_EXT_BASE_URL inválida: "${baseRaw}". URL resultante inválida.`,
+      );
+    }
+
+
+    
 
     this.logger.log(`consultarCondicionIva -> POST ${url}`);
 
