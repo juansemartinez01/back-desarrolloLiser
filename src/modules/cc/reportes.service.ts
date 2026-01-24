@@ -167,14 +167,14 @@ export class ReportesService {
       '',
       '',
       'Pagos C1',
-      Number(fmtDec(data.totales_periodo.total_pagos_c1, 2)),
+      Number(fmtDec(data.totales_periodo.total_pagos, 2)),
     ]);
     ws.addRow([
       '',
       '',
       '',
       'Pagos C2',
-      Number(fmtDec(data.totales_periodo.total_pagos_c2, 2)),
+      Number(fmtDec(data.totales_periodo.total_pagos, 2)),
     ]);
     ws.addRow([
       '',
@@ -289,8 +289,8 @@ export class ReportesService {
     const lines = [
       ['Cargos', fmtDec(data.totales_periodo.total_cargos, 2)],
       ['ND', fmtDec(data.totales_periodo.total_nd, 2)],
-      ['Pagos C1', fmtDec(data.totales_periodo.total_pagos_c1, 2)],
-      ['Pagos C2', fmtDec(data.totales_periodo.total_pagos_c2, 2)],
+      ['Pagos C1', fmtDec(data.totales_periodo.total_pagos, 2)],
+      ['Pagos C2', fmtDec(data.totales_periodo.total_pagos, 2)],
       ['NC', fmtDec(data.totales_periodo.total_nc, 2)],
       ['Neto período', fmtDec(data.totales_periodo.neto_periodo, 2)],
       ['Saldo inicial', fmtDec(data.saldo_inicial, 2)],
