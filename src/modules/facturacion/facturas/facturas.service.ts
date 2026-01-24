@@ -3,12 +3,13 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 import { QueryFacturasDto } from './dto/query-facturas.dto';
 import { FactuExternalClient } from '../http/factu-external.client';
-import { ApiLoggerService } from '../services/api-logger.service';
+
 import { normalizeItem, resumir } from './utils/factura-calc.util';
 import { ConsultarCondicionIvaDto } from '../emisores/dto/consultar-condicion-iva.dto';
 import axios from 'axios';
@@ -25,9 +26,10 @@ function dec6(n: number | string) {
 @Injectable()
 export class FacturasService {
   constructor(
+    
     private readonly ds: DataSource,
     private readonly ext: FactuExternalClient,
-    private readonly logger: ApiLoggerService,
+    private readonly logger = new Logger(FacturasService.name)
   ) {}
 
   // --- Crear + Emitir --------------------------------------------------------
@@ -337,23 +339,22 @@ export class FacturasService {
     const baseRaw = (process.env.FACT_EXT_BASE_URL ?? '').trim();
 
     if (!baseRaw) {
-      // 502 no es lo ideal si es config local -> mejor 400/500. Acá te lo marco claro.
       throw new BadRequestException(
-        'Falta configurar FACTURACION_API_BASE (ej: https://tu-api.com)',
+        'Falta FACT_EXT_BASE_URL (ej: https://tu-api.com o https://tu-api.com/api)',
       );
     }
 
-    // Normaliza: si vino sin http/https, le agrega https://
     const base =
       baseRaw.startsWith('http://') || baseRaw.startsWith('https://')
         ? baseRaw
         : `https://${baseRaw}`;
 
-    // Evita dobles slashes
     const url = `${base.replace(/\/+$/, '')}/consultar-condicion-iva`;
 
+    this.logger.log(`consultarCondicionIva -> POST ${url}`);
+
     try {
-      const response = await axios.post(
+      const resp = await axios.post(
         url,
         { cuit_consulta: dto.cuit_consulta },
         {
@@ -367,14 +368,47 @@ export class FacturasService {
         },
       );
 
-      return response.data;
+      return resp.data;
     } catch (err: any) {
-      const detail =
-        err?.response?.data ??
-        err?.message ??
-        'Error consultando condición IVA';
+      const status = err?.response?.status;
+      const data = err?.response?.data;
+      const msg = err?.message;
 
-      throw new BadGatewayException(detail);
+      this.logger.error(
+        `consultarCondicionIva ERROR -> url=${url} status=${status ?? 'n/a'} message=${msg}`,
+      );
+      if (data) {
+        // ojo: esto puede ser objeto grande; igual sirve para debug
+        this.logger.error(
+          `consultarCondicionIva ERROR body -> ${JSON.stringify(data)}`,
+        );
+      }
+
+      // Si es error “de URL”, lo aclaramos
+      if (msg?.includes('Invalid URL')) {
+        throw new BadGatewayException({
+          message: 'Invalid URL al llamar API externa',
+          url,
+          hint: 'Revisar FACT_EXT_BASE_URL (debe incluir https:// y prefijo /api si aplica)',
+        });
+      }
+
+      // Si la externa respondió con status/data
+      if (status) {
+        throw new BadGatewayException({
+          message: 'API externa devolvió error',
+          url,
+          status,
+          detail: data ?? msg,
+        });
+      }
+
+      // Si ni siquiera hubo respuesta (DNS/timeout/conexión)
+      throw new BadGatewayException({
+        message: 'No se pudo conectar a la API externa (network/timeout/DNS)',
+        url,
+        detail: msg,
+      });
     }
   }
 }
