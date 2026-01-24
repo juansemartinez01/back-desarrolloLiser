@@ -333,32 +333,48 @@ export class FacturasService {
     return { factura: fac[0], items };
   }
 
-
   async consultarCondicionIva(dto: ConsultarCondicionIvaDto) {
-  try {
-    const response = await axios.post(
-      `${process.env.FACTURACION_API_BASE}/consultar-condicion-iva`,
-      {
-        cuit_consulta: dto.cuit_consulta,
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.FACTURACION_API_KEY,
+    const baseRaw = (process.env.FACTURACION_API_BASE ?? '').trim();
+
+    if (!baseRaw) {
+      // 502 no es lo ideal si es config local -> mejor 400/500. Acá te lo marco claro.
+      throw new BadRequestException(
+        'Falta configurar FACTURACION_API_BASE (ej: https://tu-api.com)',
+      );
+    }
+
+    // Normaliza: si vino sin http/https, le agrega https://
+    const base =
+      baseRaw.startsWith('http://') || baseRaw.startsWith('https://')
+        ? baseRaw
+        : `https://${baseRaw}`;
+
+    // Evita dobles slashes
+    const url = `${base.replace(/\/+$/, '')}/consultar-condicion-iva`;
+
+    try {
+      const response = await axios.post(
+        url,
+        { cuit_consulta: dto.cuit_consulta },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(process.env.FACTURACION_API_KEY
+              ? { 'x-api-key': process.env.FACTURACION_API_KEY }
+              : {}),
+          },
+          timeout: 15000,
         },
-        timeout: 15000,
-      },
-    );
+      );
 
-    return response.data;
-  } catch (err: any) {
-    const detail =
-      err?.response?.data ??
-      err?.message ??
-      'Error consultando condición IVA';
+      return response.data;
+    } catch (err: any) {
+      const detail =
+        err?.response?.data ??
+        err?.message ??
+        'Error consultando condición IVA';
 
-    throw new BadGatewayException(detail);
+      throw new BadGatewayException(detail);
+    }
   }
-  
-}
 }
