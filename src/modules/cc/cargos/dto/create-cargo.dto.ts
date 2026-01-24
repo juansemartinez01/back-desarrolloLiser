@@ -8,7 +8,9 @@ import {
   MaxLength,
   IsNumber,
   IsPositive,
+  IsEnum,
 } from 'class-validator';
+import { PagoCuenta } from '../../enums/pago-cuenta.enum';
 
 export class CreateCargoDto {
   @IsDateString()
@@ -40,6 +42,10 @@ export class CreateCargoDto {
   @IsString()
   @MaxLength(1000)
   observacion?: string;
+
+  @IsOptional()
+  @IsEnum(PagoCuenta)
+  cuenta?: PagoCuenta;
 }
 
 export class CreateCargosBulkDto {

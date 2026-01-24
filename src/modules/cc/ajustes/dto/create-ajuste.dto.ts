@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsDateString,
+  IsEnum,
   IsIn,
   IsNotEmpty,
   IsNumber,
@@ -10,6 +11,7 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import { PagoCuenta } from '../../enums/pago-cuenta.enum';
 
 export class CreateAjusteDto {
   @IsDateString()
@@ -35,4 +37,8 @@ export class CreateAjusteDto {
   @IsString()
   @MaxLength(1000)
   observacion?: string;
+
+  @IsOptional()
+    @IsEnum(PagoCuenta)
+    cuenta?: PagoCuenta;
 }

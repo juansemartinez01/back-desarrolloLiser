@@ -7,22 +7,30 @@ export class EstadoCuentaService {
   constructor(private readonly ds: DataSource) {}
 
   /**
-   * Estado de cuenta por cliente:
+   * Estado de cuenta por cliente (por cuenta):
    * - saldo_inicial (antes de 'desde')
-   * - movimientos (cargos, pagos C1/C2, NC, ND) con importe firmado y saldo_corrido
+   * - movimientos (cargos, pagos, NC, ND) con importe firmado y saldo_corrido
    * - totales por tipo y saldo_final
+   *
+   * IMPORTANTE:
+   * - Ahora TODO está separado por CUENTA (CUENTA1 / CUENTA2).
+   * - Este endpoint devuelve UNA cuenta. Para la vista integrada, se arma otro endpoint (o se llama 2 veces y se mergea).
    */
   async estadoCuenta(q: QueryEstadoCuentaDto) {
     const clienteId = q.cliente_id;
     if (!clienteId) throw new BadRequestException('cliente_id requerido');
+
+    // Asumimos que ya agregaste cuenta en el DTO (requerida)
+    const cuenta = (q as any).cuenta;
+    if (!cuenta)
+      throw new BadRequestException('cuenta requerida (CUENTA1/CUENTA2)');
 
     const order = (q.order ?? 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     const page = Math.max(1, q.page ?? 1);
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
     const offset = (page - 1) * limit;
 
-    // --- Cálculo de SALDO INICIAL (todo antes de 'desde') ---
-    // si no hay 'desde', saldo_inicial = 0 para simplificar el extracto completo
+    // --- SALDO INICIAL (antes de 'desde') --- (filtrado por cuenta)
     let saldoInicial = 0;
     if (q.desde) {
       const desde = new Date(q.desde);
@@ -30,22 +38,22 @@ export class EstadoCuentaService {
         WITH tot_cargos AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_cargos
-          WHERE cliente_id = $1 AND fecha < $2
+          WHERE cliente_id = $1 AND cuenta = $2 AND fecha < $3
         ),
         tot_pagos AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_pagos
-          WHERE cliente_id = $1 AND fecha < $2
+          WHERE cliente_id = $1 AND cuenta = $2 AND fecha < $3
         ),
         tot_nc AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_ajustes
-          WHERE cliente_id = $1 AND tipo = 'NC' AND fecha < $2
+          WHERE cliente_id = $1 AND cuenta = $2 AND tipo = 'NC' AND fecha < $3
         ),
         tot_nd AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_ajustes
-          WHERE cliente_id = $1 AND tipo = 'ND' AND fecha < $2
+          WHERE cliente_id = $1 AND cuenta = $2 AND tipo = 'ND' AND fecha < $3
         )
         SELECT
           (SELECT s FROM tot_cargos)
@@ -53,14 +61,16 @@ export class EstadoCuentaService {
           - (SELECT s FROM tot_pagos)
           - (SELECT s FROM tot_nc) AS saldo_ini;
       `;
-      const r = await this.ds.query(sqlSaldo, [clienteId, desde]);
+      const r = await this.ds.query(sqlSaldo, [clienteId, cuenta, desde]);
       saldoInicial = Number(r?.[0]?.saldo_ini || 0);
     }
 
-    // --- Filtros de rango para movimientos en el período ---
-    const params: any[] = [clienteId];
-    let p = 2;
-    const conds: string[] = ['mov.cliente_id = $1'];
+    // --- Filtros de rango para movimientos del período --- (por cliente + cuenta)
+    const params: any[] = [clienteId, cuenta];
+    let p = 3;
+
+    // OJO: acá ya tenemos "mov.cliente_id = $1 AND mov.cuenta = $2"
+    const conds: string[] = ['mov.cliente_id = $1', 'mov.cuenta = $2'];
 
     if (q.desde) {
       conds.push(`mov.fecha >= $${p++}`);
@@ -72,152 +82,166 @@ export class EstadoCuentaService {
     }
     const whereMov = conds.join(' AND ');
 
-    // --- Movimientos unificados con importe firmado ---
-    // Convenciones:
-    //  - CARGO:        +importe
-    //  - ND:           +importe
-    //  - PAGO_C1/C2:   -importe
-    //  - NC:           -importe
-    // Se arma una UNION ALL con una vista "mov(cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed)"
-    // ... después de construir `params` y `p` con los filtros:
-    const siIdx = p++; // índice para saldo_inicial
-    const limitIdx = p++; // índice para LIMIT
-    const offsetIdx = p++; // índice para OFFSET
+    // Índices paramétricos para saldo inicial / limit / offset
+    const siIdx = p++;
+    const limitIdx = p++;
+    const offsetIdx = p++;
 
     const sqlMovs = `
-  WITH mov AS (
-    -- CARGOS
-    SELECT
-      c.cliente_id,
-      c.fecha,
-      'CARGO'::text AS tipo,
-      c.id::text    AS origen_id,
-      COALESCE(c.venta_ref_tipo,'') || ':' || COALESCE(c.venta_ref_id,'') AS ref,
-      c.observacion,
-      (c.importe)::numeric(18,4) AS importe_signed
-    FROM public.cc_cargos c
-    WHERE c.cliente_id = $1
+      WITH mov AS (
+        -- CARGOS (+)
+        SELECT
+          c.cliente_id,
+          c.cuenta,
+          c.fecha,
+          'CARGO'::text AS tipo,
+          c.id::text    AS origen_id,
+          COALESCE(c.venta_ref_tipo,'') || ':' || COALESCE(c.venta_ref_id,'') AS ref,
+          c.observacion,
+          (c.importe)::numeric(18,4) AS importe_signed
+        FROM public.cc_cargos c
+        WHERE c.cliente_id = $1 AND c.cuenta = $2
 
-    UNION ALL
+        UNION ALL
 
-    -- PAGOS (Cuenta 1/2)
-    SELECT
-      p.cliente_id,
-      p.fecha,
-      CASE WHEN p.cuenta = 'CUENTA1'::cc_pago_cuenta THEN 'PAGO_C1' ELSE 'PAGO_C2' END AS tipo,
-      p.id::text AS origen_id,
-      COALESCE(p.referencia_externa,'') AS ref,
-      p.observacion,
-      (-p.importe)::numeric(18,4) AS importe_signed
-    FROM public.cc_pagos p
-    WHERE p.cliente_id = $1
+        -- PAGOS (-)
+        SELECT
+          p.cliente_id,
+          p.cuenta,
+          p.fecha,
+          'PAGO'::text AS tipo,
+          p.id::text AS origen_id,
+          COALESCE(p.referencia_externa,'') AS ref,
+          p.observacion,
+          (-p.importe)::numeric(18,4) AS importe_signed
+        FROM public.cc_pagos p
+        WHERE p.cliente_id = $1 AND p.cuenta = $2
 
-    UNION ALL
+        UNION ALL
 
-    -- NC (negativo)
-    SELECT
-      a.cliente_id, a.fecha, 'NC'::text, a.id::text,
-      COALESCE(a.referencia_externa,''), a.observacion,
-      (-a.importe)::numeric(18,4)
-    FROM public.cc_ajustes a
-    WHERE a.cliente_id = $1 AND a.tipo = 'NC'
+        -- NC (-)
+        SELECT
+          a.cliente_id,
+          a.cuenta,
+          a.fecha,
+          'NC'::text AS tipo,
+          a.id::text AS origen_id,
+          COALESCE(a.referencia_externa,'') AS ref,
+          a.observacion,
+          (-a.importe)::numeric(18,4) AS importe_signed
+        FROM public.cc_ajustes a
+        WHERE a.cliente_id = $1 AND a.cuenta = $2 AND a.tipo = 'NC'
 
-    UNION ALL
+        UNION ALL
 
-    -- ND (positivo)
-    SELECT
-      a.cliente_id, a.fecha, 'ND'::text, a.id::text,
-      COALESCE(a.referencia_externa,''), a.observacion,
-      (a.importe)::numeric(18,4)
-    FROM public.cc_ajustes a
-    WHERE a.cliente_id = $1 AND a.tipo = 'ND'
-  ),
-  filtrado AS (
-    SELECT * FROM mov WHERE ${whereMov}
-  ),
-  ordenado AS (
-    SELECT * FROM filtrado
-    ORDER BY fecha ${order}, tipo ${order}, origen_id ${order}
-  ),
-  con_running AS (
-    SELECT
-      cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed,
-      SUM(importe_signed) OVER (
+        -- ND (+)
+        SELECT
+          a.cliente_id,
+          a.cuenta,
+          a.fecha,
+          'ND'::text AS tipo,
+          a.id::text AS origen_id,
+          COALESCE(a.referencia_externa,'') AS ref,
+          a.observacion,
+          (a.importe)::numeric(18,4) AS importe_signed
+        FROM public.cc_ajustes a
+        WHERE a.cliente_id = $1 AND a.cuenta = $2 AND a.tipo = 'ND'
+      ),
+      filtrado AS (
+        SELECT * FROM mov mov WHERE ${whereMov}
+      ),
+      ordenado AS (
+        SELECT * FROM filtrado
         ORDER BY fecha ${order}, tipo ${order}, origen_id ${order}
-        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-      ) AS running_period
-    FROM ordenado
-  )
-  SELECT
-    cliente_id, fecha, tipo, origen_id, ref, observacion, importe_signed,
-    ( $${siIdx}::numeric + running_period )::numeric(18,4) AS saldo_corrido
-  FROM con_running
-  LIMIT $${limitIdx} OFFSET $${offsetIdx};
-`;
+      ),
+      con_running AS (
+        SELECT
+          cliente_id, cuenta, fecha, tipo, origen_id, ref, observacion, importe_signed,
+          SUM(importe_signed) OVER (
+            ORDER BY fecha ${order}, tipo ${order}, origen_id ${order}
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS running_period
+        FROM ordenado
+      )
+      SELECT
+        cliente_id, cuenta, fecha, tipo, origen_id, ref, observacion, importe_signed,
+        ( $${siIdx}::numeric + running_period )::numeric(18,4) AS saldo_corrido
+      FROM con_running
+      LIMIT $${limitIdx} OFFSET $${offsetIdx};
+    `;
 
-    
-
-    // Totales del período (para footer)
+    // --- Totales del período (footer) --- (filtrado por cuenta)
     const sqlTotales = `
       WITH mov AS (
         SELECT c.fecha, 'CARGO'::text AS tipo, (c.importe)::numeric AS amt
         FROM public.cc_cargos c
-        WHERE c.cliente_id = $1
+        WHERE c.cliente_id = $1 AND c.cuenta = $2
 
         UNION ALL
 
-        SELECT p.fecha,
-              CASE WHEN p.cuenta = 'CUENTA1'::cc_pago_cuenta THEN 'PAGO_C1' ELSE 'PAGO_C2' END,
-              (-p.importe)::numeric
+        SELECT p.fecha, 'PAGO'::text, (-p.importe)::numeric
         FROM public.cc_pagos p
-        WHERE p.cliente_id = $1
+        WHERE p.cliente_id = $1 AND p.cuenta = $2
 
         UNION ALL
-        SELECT a.fecha, 'NC', (-a.importe)::numeric
-        FROM public.cc_ajustes a WHERE a.cliente_id = $1 AND a.tipo = 'NC'
+
+        SELECT a.fecha, 'NC'::text, (-a.importe)::numeric
+        FROM public.cc_ajustes a
+        WHERE a.cliente_id = $1 AND a.cuenta = $2 AND a.tipo = 'NC'
 
         UNION ALL
-        SELECT a.fecha, 'ND', (a.importe)::numeric
-        FROM public.cc_ajustes a WHERE a.cliente_id = $1 AND a.tipo = 'ND'
+
+        SELECT a.fecha, 'ND'::text, (a.importe)::numeric
+        FROM public.cc_ajustes a
+        WHERE a.cliente_id = $1 AND a.cuenta = $2 AND a.tipo = 'ND'
       )
       SELECT
-        COALESCE(SUM(CASE WHEN tipo = 'CARGO'  THEN amt ELSE 0 END),0)::numeric(18,4) AS total_cargos,
-        COALESCE(SUM(CASE WHEN tipo = 'ND'     THEN amt ELSE 0 END),0)::numeric(18,4) AS total_nd,
-        COALESCE(SUM(CASE WHEN tipo = 'PAGO_C1' THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_pagos_c1,
-        COALESCE(SUM(CASE WHEN tipo = 'PAGO_C2' THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_pagos_c2,
-        COALESCE(SUM(CASE WHEN tipo = 'NC'     THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_nc,
+        COALESCE(SUM(CASE WHEN tipo = 'CARGO' THEN amt ELSE 0 END),0)::numeric(18,4) AS total_cargos,
+        COALESCE(SUM(CASE WHEN tipo = 'ND'    THEN amt ELSE 0 END),0)::numeric(18,4) AS total_nd,
+        COALESCE(SUM(CASE WHEN tipo = 'PAGO'  THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_pagos,
+        COALESCE(SUM(CASE WHEN tipo = 'NC'    THEN -amt ELSE 0 END),0)::numeric(18,4) AS total_nc,
         COALESCE(SUM(amt),0)::numeric(18,4) AS neto_periodo
       FROM mov
       WHERE 1=1
-        ${q.desde ? 'AND fecha >= $2' : ''}
-        ${q.hasta ? `AND fecha < $${q.desde ? 3 : 2}` : ''};
+        ${q.desde ? 'AND fecha >= $3' : ''}
+        ${q.hasta ? `AND fecha < $${q.desde ? 4 : 3}` : ''};
     `;
 
-    // Total filas (para paginación)
+    // --- Total filas (paginación) --- (filtrado por cuenta)
     const sqlCount = `
       WITH mov AS (
-        SELECT c.cliente_id, c.fecha FROM public.cc_cargos c WHERE c.cliente_id = $1
+        SELECT c.fecha
+        FROM public.cc_cargos c
+        WHERE c.cliente_id = $1 AND c.cuenta = $2
+
         UNION ALL
-        SELECT p.cliente_id, p.fecha FROM public.cc_pagos p WHERE p.cliente_id = $1
+
+        SELECT p.fecha
+        FROM public.cc_pagos p
+        WHERE p.cliente_id = $1 AND p.cuenta = $2
+
         UNION ALL
-        SELECT a.cliente_id, a.fecha FROM public.cc_ajustes a WHERE a.cliente_id = $1
+
+        SELECT a.fecha
+        FROM public.cc_ajustes a
+        WHERE a.cliente_id = $1 AND a.cuenta = $2
       )
       SELECT COUNT(1)::int AS c
       FROM mov
       WHERE 1=1
-        ${q.desde ? 'AND fecha >= $2' : ''}
-        ${q.hasta ? `AND fecha < $${q.desde ? 3 : 2}` : ''};
+        ${q.desde ? 'AND fecha >= $3' : ''}
+        ${q.hasta ? `AND fecha < $${q.desde ? 4 : 3}` : ''};
     `;
 
     // --- Ejecutar ---
-    const movParams = [...params, saldoInicial, limit, offset]; // ojo: el saldoInicial ocupa el idx (idxLimit-1) en la SELECT
+    const movParams = [...params, saldoInicial, limit, offset];
     const rows = await this.ds.query(sqlMovs, movParams);
 
-    const totParams: any[] = [clienteId];
+    const totParams: any[] = [clienteId, cuenta];
     if (q.desde) totParams.push(new Date(q.desde));
     if (q.hasta) totParams.push(new Date(q.hasta));
-    const tot = (await this.ds.query(sqlTotales, totParams))?.[0] ?? {};
 
+    const tot = (await this.ds.query(sqlTotales, totParams))?.[0] ?? {};
     const count = (await this.ds.query(sqlCount, totParams))?.[0]?.c ?? 0;
 
     const saldoFinal = Number(
@@ -226,6 +250,7 @@ export class EstadoCuentaService {
 
     return {
       cliente_id: clienteId,
+      cuenta,
       rango: {
         desde: q.desde ?? null,
         hasta: q.hasta ?? null,
@@ -234,7 +259,7 @@ export class EstadoCuentaService {
       saldo_inicial: Number(saldoInicial.toFixed(4)),
       movimientos: rows.map((r: any) => ({
         fecha: r.fecha,
-        tipo: r.tipo, // CARGO | ND | NC | PAGO_C1 | PAGO_C2
+        tipo: r.tipo, // CARGO | ND | NC | PAGO
         origen_id: r.origen_id,
         referencia: r.ref,
         observacion: r.observacion,
@@ -244,8 +269,7 @@ export class EstadoCuentaService {
       totales_periodo: {
         total_cargos: Number(tot?.total_cargos || 0),
         total_nd: Number(tot?.total_nd || 0),
-        total_pagos_c1: Number(tot?.total_pagos_c1 || 0),
-        total_pagos_c2: Number(tot?.total_pagos_c2 || 0),
+        total_pagos: Number(tot?.total_pagos || 0),
         total_nc: Number(tot?.total_nc || 0),
         neto_periodo: Number(tot?.neto_periodo || 0), // cargos+nd - pagos - nc
       },

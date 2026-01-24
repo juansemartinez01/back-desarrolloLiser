@@ -72,28 +72,39 @@ export class PagosService {
         ],
       );
       const pago = pagoRows[0];
-      let restante = Number(pago.importe_total);
+      let restante = Number(pago.importe);
+
 
       // 3) Traer cargos abiertos (saldo > 0) orden FIFO y lockearlos
       //    (saldo = importe - aplicado_actual)
       const cargos = await qr.query(
-        `
+              `
         SELECT c.id,
-               c.fecha,
-               c.importe::numeric AS importe,
-               (c.importe - COALESCE((
-                  SELECT SUM(d.importe)::numeric FROM public.cc_pagos_det d WHERE d.cargo_id = c.id
-               ),0))::numeric AS saldo
+              c.fecha,
+              c.importe::numeric AS importe,
+              (
+                c.importe
+                - COALESCE((SELECT SUM(d.importe)::numeric
+                            FROM public.cc_pagos_det d
+                            WHERE d.cargo_id = c.id),0)
+                - COALESCE((SELECT SUM(ad.importe)::numeric
+                            FROM public.cc_ajustes_det ad
+                            WHERE ad.cargo_id = c.id),0)
+              )::numeric AS saldo
         FROM public.cc_cargos c
         WHERE c.cliente_id = $1
-          AND (c.importe - COALESCE((
-                SELECT SUM(d.importe)::numeric FROM public.cc_pagos_det d WHERE d.cargo_id = c.id
-              ),0)) > 0
+          AND c.cuenta = $2
+          AND (
+            c.importe
+            - COALESCE((SELECT SUM(d.importe)::numeric FROM public.cc_pagos_det d WHERE d.cargo_id = c.id),0)
+            - COALESCE((SELECT SUM(ad.importe)::numeric FROM public.cc_ajustes_det ad WHERE ad.cargo_id = c.id),0)
+          ) > 0
         ORDER BY c.fecha ASC, c.id ASC
         FOR UPDATE OF c SKIP LOCKED
         `,
-        [dto.cliente_id],
-      );
+              [dto.cliente_id, dto.cuenta],
+            );
+
 
       const aplicaciones: Array<{ cargo_id: string; importe: string }> = [];
 
@@ -123,14 +134,13 @@ export class PagosService {
           fecha: pago.fecha,
           cliente_id: pago.cliente_id,
           cuenta: pago.cuenta,
-          importe_total: pago.importe_total,
+          importe_total: pago.importe,
           referencia_externa: pago.referencia_externa,
           observacion: pago.observacion,
         },
-        aplicado: toDec4(
-          Number(pago.importe_total) - Math.max(0, Number(restante)),
-        ),
+        aplicado: toDec4(Number(pago.importe) - Math.max(0, Number(restante))),
         sin_aplicar: toDec4(Math.max(0, Number(restante))),
+
         aplicaciones,
       };
     } catch (e: any) {
@@ -244,10 +254,9 @@ export class PagosService {
     );
 
     const aplicado = apps.reduce((acc, x) => acc + Number(x.importe || 0), 0);
-    const sin_aplicar = Math.max(
-      0,
-      Number(pago[0].importe_total) - aplicado,
-    ).toFixed(4);
+    const sin_aplicar = Math.max(0, Number(pago[0].importe) - aplicado).toFixed(
+      4,
+    );
 
     return {
       pago: { ...pago[0], aplicado: aplicado.toFixed(4), sin_aplicar },
@@ -283,10 +292,9 @@ export class PagosService {
       (acc: number, x: any) => acc + Number(x.importe || 0),
       0,
     );
-    const sin_aplicar = Math.max(
-      0,
-      Number(pago[0].importe_total) - aplicado,
-    ).toFixed(4);
+    const sin_aplicar = Math.max(0, Number(pago[0].importe) - aplicado).toFixed(
+      4,
+    );
     return {
       ok: true,
       pago: pago[0],

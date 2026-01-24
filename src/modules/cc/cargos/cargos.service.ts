@@ -34,24 +34,31 @@ export class CargosService {
 
       // ON CONFLICT para idempotencia devolviendo la fila (creada o existente)
       const row = await qr.query(
-        `
-        INSERT INTO public.cc_cargos
-          (fecha, fecha_vencimiento, cliente_id, venta_ref_tipo, venta_ref_id, importe, observacion)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
-        ON CONFLICT (cliente_id, venta_ref_tipo, venta_ref_id)
-        DO UPDATE SET updated_at = now()
-        RETURNING id, fecha, fecha_vencimiento, cliente_id, venta_ref_tipo, venta_ref_id, importe, observacion, created_at, updated_at;
-        `,
-        [
-          fecha,
-          fv,
-          dto.cliente_id,
-          dto.venta_ref_tipo || 'VENTA',
-          dto.venta_ref_id,
-          toDec4(dto.importe),
-          dto.observacion ?? null,
-        ],
-      );
+            `
+      INSERT INTO public.cc_cargos
+        (fecha, fecha_vencimiento, cliente_id, cuenta, venta_ref_tipo, venta_ref_id, importe, observacion)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT (cliente_id, cuenta, venta_ref_tipo, venta_ref_id)
+      DO UPDATE SET
+        fecha = EXCLUDED.fecha,
+        fecha_vencimiento = EXCLUDED.fecha_vencimiento,
+        importe = EXCLUDED.importe,
+        observacion = EXCLUDED.observacion,
+        updated_at = now()
+      RETURNING id, fecha, fecha_vencimiento, cliente_id, cuenta, venta_ref_tipo, venta_ref_id, importe, observacion, created_at, updated_at;
+      `,
+            [
+              fecha,
+              fv,
+              dto.cliente_id,
+              dto.cuenta ?? 'CUENTA1',
+              dto.venta_ref_tipo || 'VENTA',
+              dto.venta_ref_id,
+              toDec4(dto.importe),
+              dto.observacion ?? null,
+            ],
+          );
+
 
       await qr.commitTransaction();
 

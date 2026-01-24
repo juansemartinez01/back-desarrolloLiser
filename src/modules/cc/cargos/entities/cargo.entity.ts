@@ -1,6 +1,7 @@
 import { Column, Entity, Index, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../../entities/base.entity';
 import { CcCliente } from '../../clientes/entities/cliente.entity';
+import { PagoCuenta } from '../../enums/pago-cuenta.enum';
 
 @Entity('cc_cargos')
 export class CcCargo extends BaseEntity {
@@ -30,4 +31,13 @@ export class CcCargo extends BaseEntity {
 
   @Column({ type: 'text', nullable: true })
   observacion?: string | null;
+
+  @Index()
+  @Column({
+    type: 'enum',
+    enum: PagoCuenta,
+    enumName: 'cc_pago_cuenta',
+    default: PagoCuenta.CUENTA1,
+  })
+  cuenta: PagoCuenta;
 }
