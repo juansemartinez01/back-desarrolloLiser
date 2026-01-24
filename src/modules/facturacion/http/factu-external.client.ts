@@ -8,7 +8,9 @@ export type Endpoint =
   | '/certificados'
   | '/facturas'
   | '/liquidaciones'
-  | '/compras';
+  | '/compras'
+  | '/consultar-condicion-iva';
+
 
 @Injectable()
 export class FactuExternalClient {
@@ -80,6 +82,16 @@ export class FactuExternalClient {
     });
   }
 
+  postConsultarCondicionIva(
+    payload: { cuit_consulta: string | number },
+    opts?: { emisor_id?: string; idempotencyKey?: string },
+  ) {
+    return this.post('/consultar-condicion-iva', payload, {
+      ...opts,
+      documento_tipo: undefined,
+    });
+  }
+
   // --- Core -------------------------------------------------------------------
 
   private async post(
@@ -117,7 +129,7 @@ export class FactuExternalClient {
         // Log OK
         await this.logger.log({
           emisor_id: meta?.emisor_id,
-          endpoint,
+          endpoint: endpoint as any,
           request_payload: this.cfg.logBodies ? body : undefined,
           response_payload: this.cfg.logBodies ? res.data : undefined,
           status_http: res.status,
@@ -136,7 +148,7 @@ export class FactuExternalClient {
         // Log error del intento
         await this.logger.log({
           emisor_id: meta?.emisor_id,
-          endpoint,
+          endpoint: endpoint as any,
           request_payload: this.cfg.logBodies ? body : undefined,
           response_payload: this.cfg.logBodies ? resp : undefined,
           status_http: status,

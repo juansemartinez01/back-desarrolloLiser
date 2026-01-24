@@ -31,9 +31,6 @@ export class FacturasService {
     private readonly ds: DataSource,
     private readonly ext: FactuExternalClient,
   ) {}
-  
-  
-
 
   // --- Crear + Emitir --------------------------------------------------------
   async crearYEmitir(dto: CreateFacturaDto) {
@@ -339,90 +336,21 @@ export class FacturasService {
   }
 
   async consultarCondicionIva(dto: ConsultarCondicionIvaDto) {
-    const baseRaw = (process.env.FACT_EXT_BASE_URL ?? '').trim();
-
-    if (!baseRaw) {
-      throw new BadRequestException(
-        'Falta FACT_EXT_BASE_URL (ej: https://tu-api.com o https://tu-api.com/api)',
-      );
+    if (!dto?.cuit_consulta) {
+      throw new BadRequestException('cuit_consulta requerido');
     }
 
-    const base =
-      baseRaw.startsWith('http://') || baseRaw.startsWith('https://')
-        ? baseRaw
-        : `https://${baseRaw}`;
-
-    let url: string;
     try {
-      url = `${base.replace(/\/+$/, '')}/consultar-condicion-iva`;
-      new URL(url); // valida formato
-    } catch {
-      throw new BadRequestException(
-        `FACT_EXT_BASE_URL inválida: "${baseRaw}". URL resultante inválida.`,
-      );
-    }
-
-
-    
-
-    this.logger.log(`consultarCondicionIva -> POST ${url}`);
-
-    try {
-      const resp = await axios.post(
-        url,
-        { cuit_consulta: dto.cuit_consulta },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(process.env.FACTURACION_API_KEY
-              ? { 'x-api-key': process.env.FACTURACION_API_KEY }
-              : {}),
-          },
-          timeout: 15000,
-        },
-      );
-
-      return resp.data;
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const data = err?.response?.data;
-      const msg = err?.message;
-
-      this.logger.error(
-        `consultarCondicionIva ERROR -> url=${url} status=${status ?? 'n/a'} message=${msg}`,
-      );
-      if (data) {
-        // ojo: esto puede ser objeto grande; igual sirve para debug
-        this.logger.error(
-          `consultarCondicionIva ERROR body -> ${JSON.stringify(data)}`,
-        );
-      }
-
-      // Si es error “de URL”, lo aclaramos
-      if (msg?.includes('Invalid URL')) {
-        throw new BadGatewayException({
-          message: 'Invalid URL al llamar API externa',
-          url,
-          hint: 'Revisar FACT_EXT_BASE_URL (debe incluir https:// y prefijo /api si aplica)',
-        });
-      }
-
-      // Si la externa respondió con status/data
-      if (status) {
-        throw new BadGatewayException({
-          message: 'API externa devolvió error',
-          url,
-          status,
-          detail: data ?? msg,
-        });
-      }
-
-      // Si ni siquiera hubo respuesta (DNS/timeout/conexión)
-      throw new BadGatewayException({
-        message: 'No se pudo conectar a la API externa (network/timeout/DNS)',
-        url,
-        detail: msg,
+      // si querés loguear / asociar a un emisor, agregalo en opts
+      return await this.ext.postConsultarCondicionIva({
+        cuit_consulta: dto.cuit_consulta,
       });
+    } catch (e: any) {
+      // el client ya te lo transforma en BadRequestException con mensaje útil
+      // pero si querés mantener el contrato 502 en este endpoint:
+      throw new BadGatewayException(
+        e?.message ?? 'Error consultando condición IVA',
+      );
     }
   }
 }
