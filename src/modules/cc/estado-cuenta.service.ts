@@ -15,12 +15,21 @@ export class EstadoCuentaService {
    * IMPORTANTE:
    * - Ahora TODO está separado por CUENTA (CUENTA1 / CUENTA2).
    * - Este endpoint devuelve UNA cuenta. Para la vista integrada, se arma otro endpoint (o se llama 2 veces y se mergea).
+   *
+   * NUEVO:
+   * - include_movimientos=false => no trae movimientos (pero totales/saldos siguen completos del período)
+   * - tipos=CARGO,PAGO,NC,ND => filtra SOLO el listado de movimientos + su paginación (totales/saldo_final no cambian)
+   * - q=texto => filtra SOLO el listado (ref/observacion)
    */
   async estadoCuenta(q: QueryEstadoCuentaDto) {
+    const includeMovs = q.include_movimientos !== false; // default true
+    const tipos = q.tipos?.length ? (q.tipos as string[]) : undefined; // ['CARGO','PAGO','NC','ND']
+    const search = q.q?.trim() || undefined;
+
     const clienteId = q.cliente_id;
     if (!clienteId) throw new BadRequestException('cliente_id requerido');
 
-    // Asumimos que ya agregaste cuenta en el DTO (requerida)
+    // Cuenta requerida (CUENTA1/CUENTA2)
     const cuenta = (q as any).cuenta;
     if (!cuenta)
       throw new BadRequestException('cuenta requerida (CUENTA1/CUENTA2)');
@@ -30,7 +39,9 @@ export class EstadoCuentaService {
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
     const offset = (page - 1) * limit;
 
-    // --- SALDO INICIAL (antes de 'desde') --- (filtrado por cuenta)
+    // -------------------------------------------------------------------------
+    // SALDO INICIAL (antes de 'desde') - siempre por período completo (sin filtros de movimientos)
+    // -------------------------------------------------------------------------
     let saldoInicial = 0;
     if (q.desde) {
       const desde = new Date(q.desde);
@@ -65,11 +76,16 @@ export class EstadoCuentaService {
       saldoInicial = Number(r?.[0]?.saldo_ini || 0);
     }
 
-    // --- Filtros de rango para movimientos del período --- (por cliente + cuenta)
+    // -------------------------------------------------------------------------
+    // Filtros base del período para movimientos (cliente+cuenta+desde/hasta)
+    // Estos filtros aplican a:
+    // - movimientos (si includeMovs=true)
+    // - count de movimientos (paginación)
+    // NO aplican a totales_periodo ni saldo_final (que siguen completos del período)
+    // -------------------------------------------------------------------------
     const params: any[] = [clienteId, cuenta];
     let p = 3;
 
-    // OJO: acá ya tenemos "mov.cliente_id = $1 AND mov.cuenta = $2"
     const conds: string[] = ['mov.cliente_id = $1', 'mov.cuenta = $2'];
 
     if (q.desde) {
@@ -82,11 +98,41 @@ export class EstadoCuentaService {
     }
     const whereMov = conds.join(' AND ');
 
-    // Índices paramétricos para saldo inicial / limit / offset
+    // -------------------------------------------------------------------------
+    // Filtros extra SOLO para el listado de movimientos (y su count):
+    // - tipos
+    // - búsqueda (q) en ref/observacion
+    // -------------------------------------------------------------------------
+    const extraConds: string[] = [];
+    const extraParams: any[] = [];
+
+    // índices paramétricos: saldoInicial/limit/offset
     const siIdx = p++;
     const limitIdx = p++;
     const offsetIdx = p++;
 
+    // a partir de acá, los parámetros extra empiezan después de offsetIdx
+    let px = offsetIdx + 1;
+
+    if (tipos?.length) {
+      extraConds.push(`mov.tipo = ANY($${px}::text[])`);
+      extraParams.push(tipos);
+      px++;
+    }
+
+    if (search) {
+      extraConds.push(`(mov.ref ILIKE $${px} OR mov.observacion ILIKE $${px})`);
+      extraParams.push(`%${search}%`);
+      px++;
+    }
+
+    const whereExtra = extraConds.length
+      ? ` AND ${extraConds.join(' AND ')}`
+      : '';
+
+    // -------------------------------------------------------------------------
+    // MOVIMIENTOS (filtrables)
+    // -------------------------------------------------------------------------
     const sqlMovs = `
       WITH mov AS (
         -- CARGOS (+)
@@ -148,7 +194,8 @@ export class EstadoCuentaService {
         WHERE a.cliente_id = $1 AND a.cuenta = $2 AND a.tipo = 'ND'
       ),
       filtrado AS (
-        SELECT * FROM mov mov WHERE ${whereMov}
+        SELECT * FROM mov mov
+        WHERE ${whereMov}${whereExtra}
       ),
       ordenado AS (
         SELECT * FROM filtrado
@@ -170,7 +217,9 @@ export class EstadoCuentaService {
       LIMIT $${limitIdx} OFFSET $${offsetIdx};
     `;
 
-    // --- Totales del período (footer) --- (filtrado por cuenta)
+    // -------------------------------------------------------------------------
+    // TOTALES DEL PERÍODO (NO se filtran por tipos/q; solo por cliente/cuenta/desde/hasta)
+    // -------------------------------------------------------------------------
     const sqlTotales = `
       WITH mov AS (
         SELECT c.fecha, 'CARGO'::text AS tipo, (c.importe)::numeric AS amt
@@ -207,46 +256,93 @@ export class EstadoCuentaService {
         ${q.hasta ? `AND fecha < $${q.desde ? 4 : 3}` : ''};
     `;
 
-    // --- Total filas (paginación) --- (filtrado por cuenta)
-    const sqlCount = `
+    // -------------------------------------------------------------------------
+    // COUNT de movimientos (para paginación del listado) - SÍ aplica filtros tipos/q
+    // -------------------------------------------------------------------------
+    const sqlCountMovs = `
       WITH mov AS (
-        SELECT c.fecha
+        SELECT
+          c.cliente_id,
+          c.cuenta,
+          c.fecha,
+          'CARGO'::text AS tipo,
+          COALESCE(c.venta_ref_tipo,'') || ':' || COALESCE(c.venta_ref_id,'') AS ref,
+          c.observacion
         FROM public.cc_cargos c
         WHERE c.cliente_id = $1 AND c.cuenta = $2
 
         UNION ALL
 
-        SELECT p.fecha
+        SELECT
+          p.cliente_id,
+          p.cuenta,
+          p.fecha,
+          'PAGO'::text AS tipo,
+          COALESCE(p.referencia_externa,'') AS ref,
+          p.observacion
         FROM public.cc_pagos p
         WHERE p.cliente_id = $1 AND p.cuenta = $2
 
         UNION ALL
 
-        SELECT a.fecha
+        SELECT
+          a.cliente_id,
+          a.cuenta,
+          a.fecha,
+          'NC'::text AS tipo,
+          COALESCE(a.referencia_externa,'') AS ref,
+          a.observacion
         FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.cuenta = $2
+        WHERE a.cliente_id = $1 AND a.cuenta = $2 AND a.tipo = 'NC'
+
+        UNION ALL
+
+        SELECT
+          a.cliente_id,
+          a.cuenta,
+          a.fecha,
+          'ND'::text AS tipo,
+          COALESCE(a.referencia_externa,'') AS ref,
+          a.observacion
+        FROM public.cc_ajustes a
+        WHERE a.cliente_id = $1 AND a.cuenta = $2 AND a.tipo = 'ND'
       )
       SELECT COUNT(1)::int AS c
-      FROM mov
-      WHERE 1=1
-        ${q.desde ? 'AND fecha >= $3' : ''}
-        ${q.hasta ? `AND fecha < $${q.desde ? 4 : 3}` : ''};
+      FROM mov mov
+      WHERE ${whereMov}${whereExtra};
     `;
 
-    // --- Ejecutar ---
-    const movParams = [...params, saldoInicial, limit, offset];
-    const rows = await this.ds.query(sqlMovs, movParams);
-
+    // -------------------------------------------------------------------------
+    // EJECUTAR
+    // -------------------------------------------------------------------------
     const totParams: any[] = [clienteId, cuenta];
     if (q.desde) totParams.push(new Date(q.desde));
     if (q.hasta) totParams.push(new Date(q.hasta));
 
     const tot = (await this.ds.query(sqlTotales, totParams))?.[0] ?? {};
-    const count = (await this.ds.query(sqlCount, totParams))?.[0]?.c ?? 0;
 
     const saldoFinal = Number(
       (saldoInicial + Number(tot?.neto_periodo || 0)).toFixed(4),
     );
+
+    // Movimientos + count solo si includeMovs=true
+    let rows: any[] = [];
+    let countMovs = 0;
+
+    if (includeMovs) {
+      const movParams = [
+        ...params,
+        saldoInicial,
+        limit,
+        offset,
+        ...extraParams,
+      ];
+      rows = await this.ds.query(sqlMovs, movParams);
+
+      countMovs =
+        (await this.ds.query(sqlCountMovs, [...params, ...extraParams]))?.[0]
+          ?.c ?? 0;
+    }
 
     return {
       cliente_id: clienteId,
@@ -274,7 +370,7 @@ export class EstadoCuentaService {
         neto_periodo: Number(tot?.neto_periodo || 0), // cargos+nd - pagos - nc
       },
       saldo_final: saldoFinal,
-      pagination: { page, limit, total: Number(count) },
+      pagination: { page, limit, total: Number(countMovs) },
     };
   }
 }

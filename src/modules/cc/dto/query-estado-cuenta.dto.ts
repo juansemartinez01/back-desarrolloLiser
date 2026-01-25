@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
@@ -7,8 +7,29 @@ import {
   IsOptional,
   IsUUID,
   Min,
+  IsBoolean,
+  IsString,
 } from 'class-validator';
 import { PagoCuenta } from '../enums/pago-cuenta.enum';
+
+export type MovimientoTipo = 'CARGO' | 'PAGO' | 'NC' | 'ND';
+
+function toBool(v: any) {
+  if (v === true || v === false) return v;
+  if (typeof v === 'string')
+    return ['true', '1', 'yes', 'si'].includes(v.toLowerCase());
+  return undefined;
+}
+
+function parseTipos(v: any): MovimientoTipo[] | undefined {
+  if (!v) return undefined;
+  // acepta: tipos=CARGO,PAGO o tipos=CARGO&tipos=PAGO
+  const arr = Array.isArray(v) ? v : String(v).split(',');
+  const norm = arr.map((x) => String(x).trim().toUpperCase()).filter(Boolean);
+  const allowed = new Set(['CARGO', 'PAGO', 'NC', 'ND']);
+  const out = norm.filter((x) => allowed.has(x)) as MovimientoTipo[];
+  return out.length ? out : undefined;
+}
 
 export class QueryEstadoCuentaDto {
   @IsUUID()
@@ -16,29 +37,45 @@ export class QueryEstadoCuentaDto {
 
   @IsOptional()
   @IsDateString()
-  desde?: string; // ISO; filtro inclusivo (>=)
+  desde?: string; // inclusivo
 
   @IsOptional()
   @IsDateString()
-  hasta?: string; // ISO; filtro exclusivo (<)
+  hasta?: string; // exclusivo
 
   @IsOptional()
-    @IsEnum(PagoCuenta)
-    cuenta?: PagoCuenta;
+  @IsEnum(PagoCuenta)
+  cuenta?: PagoCuenta; // CUENTA1 | CUENTA2 (en tu service la tratás como requerida)
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
-  order?: 'ASC' | 'DESC'; // default ASC
+  order?: 'ASC' | 'DESC';
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  page?: number; // default 1
+  page?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  limit?: number; // default 100
+  limit?: number;
+
+  // ✅ nuevo: traer o no el listado
+  @IsOptional()
+  @Transform(({ value }) => toBool(value))
+  @IsBoolean()
+  include_movimientos?: boolean; // default true
+
+  // ✅ nuevo: filtrar tipos (afecta SOLO movimientos)
+  @IsOptional()
+  @Transform(({ value }) => parseTipos(value))
+  tipos?: MovimientoTipo[];
+
+  // ✅ nuevo: búsqueda simple en ref/observacion (SOLO movimientos)
+  @IsOptional()
+  @IsString()
+  q?: string;
 }
