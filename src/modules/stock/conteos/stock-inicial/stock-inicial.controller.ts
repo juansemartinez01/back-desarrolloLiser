@@ -8,6 +8,6 @@ export class StockInicialController {
 
   @Get()
   async obtener(@Query() q: QueryStockInicialDto) {
-    return this.service.obtenerStockInicial(q);
+    return this.service.obtenerStockInicialFormateado(q);
   }
 }
