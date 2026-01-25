@@ -22,9 +22,29 @@ export class EstadoCuentaService {
    * - q=texto => filtra SOLO el listado (ref/observacion)
    */
   async estadoCuenta(q: QueryEstadoCuentaDto) {
-    const includeMovs = q.include_movimientos !== false; // default true
-    const tipos = q.tipos?.length ? (q.tipos as string[]) : undefined; // ['CARGO','PAGO','NC','ND']
-    const search = q.q?.trim() || undefined;
+    // -------------------------------------------------------------------------
+    // Normalizar query params (Postman suele mandar strings)
+    // -------------------------------------------------------------------------
+    const includeMovs =
+      (q as any).include_movimientos === undefined
+        ? true
+        : String((q as any).include_movimientos) !== 'false';
+
+    const search =
+      typeof (q as any).q === 'string' && (q as any).q.trim()
+        ? (q as any).q.trim()
+        : undefined;
+
+    const tiposRaw: any = (q as any).tipos;
+    let tipos: string[] | undefined;
+    if (Array.isArray(tiposRaw)) {
+      tipos = tiposRaw.map((x) => String(x).trim()).filter(Boolean);
+    } else if (typeof tiposRaw === 'string' && tiposRaw.trim()) {
+      tipos = tiposRaw
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
 
     const clienteId = q.cliente_id;
     if (!clienteId) throw new BadRequestException('cliente_id requerido');
@@ -40,7 +60,8 @@ export class EstadoCuentaService {
     const offset = (page - 1) * limit;
 
     // -------------------------------------------------------------------------
-    // SALDO INICIAL (antes de 'desde') - siempre por período completo (sin filtros de movimientos)
+    // SALDO INICIAL (antes de 'desde') - siempre por período completo
+    // (NO se filtra por tipos/q)
     // -------------------------------------------------------------------------
     let saldoInicial = 0;
     if (q.desde) {
@@ -81,7 +102,7 @@ export class EstadoCuentaService {
     // Estos filtros aplican a:
     // - movimientos (si includeMovs=true)
     // - count de movimientos (paginación)
-    // NO aplican a totales_periodo ni saldo_final (que siguen completos del período)
+    // NO aplican a totales_periodo ni saldo_final
     // -------------------------------------------------------------------------
     const params: any[] = [clienteId, cuenta];
     let p = 3;
@@ -99,35 +120,65 @@ export class EstadoCuentaService {
     const whereMov = conds.join(' AND ');
 
     // -------------------------------------------------------------------------
-    // Filtros extra SOLO para el listado de movimientos (y su count):
-    // - tipos
-    // - búsqueda (q) en ref/observacion
+    // Índices paramétricos para sqlMovs: saldoInicial/limit/offset
     // -------------------------------------------------------------------------
-    const extraConds: string[] = [];
-    const extraParams: any[] = [];
-
-    // índices paramétricos: saldoInicial/limit/offset
     const siIdx = p++;
     const limitIdx = p++;
     const offsetIdx = p++;
 
-    // a partir de acá, los parámetros extra empiezan después de offsetIdx
-    let px = offsetIdx + 1;
+    // -------------------------------------------------------------------------
+    // whereExtra para sqlMovs (arranca DESPUÉS de offsetIdx)
+    // -------------------------------------------------------------------------
+    const extraCondsMovs: string[] = [];
+    const extraParamsMovs: any[] = [];
+    let pxMovs = offsetIdx + 1;
 
     if (tipos?.length) {
-      extraConds.push(`mov.tipo = ANY($${px}::text[])`);
-      extraParams.push(tipos);
-      px++;
+      extraCondsMovs.push(`mov.tipo = ANY($${pxMovs}::text[])`);
+      extraParamsMovs.push(tipos);
+      pxMovs++;
     }
 
     if (search) {
-      extraConds.push(`(mov.ref ILIKE $${px} OR mov.observacion ILIKE $${px})`);
-      extraParams.push(`%${search}%`);
-      px++;
+      extraCondsMovs.push(
+        `(mov.ref ILIKE $${pxMovs} OR mov.observacion ILIKE $${pxMovs})`,
+      );
+      extraParamsMovs.push(`%${search}%`);
+      pxMovs++;
     }
 
-    const whereExtra = extraConds.length
-      ? ` AND ${extraConds.join(' AND ')}`
+    const whereExtraMovs = extraCondsMovs.length
+      ? ` AND ${extraCondsMovs.join(' AND ')}`
+      : '';
+
+    // -------------------------------------------------------------------------
+    // whereExtra para sqlCountMovs (arranca DESPUÉS de params base: cliente/cuenta/desde/hasta)
+    // OJO: acá NO existen saldoInicial/limit/offset, por eso es otro numerador.
+    // -------------------------------------------------------------------------
+    const extraCondsCount: string[] = [];
+    const extraParamsCount: any[] = [];
+    let pxCount = p; // 👈 p ya quedó apuntando "después de hasta" (y después de si/limit/offset en el numerador original)
+
+    // PERO para COUNT queremos numerar desde (params.length + 1), NO desde p.
+    // params.length refleja: [clienteId, cuenta, (desde?), (hasta?)]
+    pxCount = params.length + 1;
+
+    if (tipos?.length) {
+      extraCondsCount.push(`mov.tipo = ANY($${pxCount}::text[])`);
+      extraParamsCount.push(tipos);
+      pxCount++;
+    }
+
+    if (search) {
+      extraCondsCount.push(
+        `(mov.ref ILIKE $${pxCount} OR mov.observacion ILIKE $${pxCount})`,
+      );
+      extraParamsCount.push(`%${search}%`);
+      pxCount++;
+    }
+
+    const whereExtraCount = extraCondsCount.length
+      ? ` AND ${extraCondsCount.join(' AND ')}`
       : '';
 
     // -------------------------------------------------------------------------
@@ -195,7 +246,7 @@ export class EstadoCuentaService {
       ),
       filtrado AS (
         SELECT * FROM mov mov
-        WHERE ${whereMov}${whereExtra}
+        WHERE ${whereMov}${whereExtraMovs}
       ),
       ordenado AS (
         SELECT * FROM filtrado
@@ -258,6 +309,7 @@ export class EstadoCuentaService {
 
     // -------------------------------------------------------------------------
     // COUNT de movimientos (para paginación del listado) - SÍ aplica filtros tipos/q
+    // (usa whereExtraCount para no romper numeración de params)
     // -------------------------------------------------------------------------
     const sqlCountMovs = `
       WITH mov AS (
@@ -309,7 +361,7 @@ export class EstadoCuentaService {
       )
       SELECT COUNT(1)::int AS c
       FROM mov mov
-      WHERE ${whereMov}${whereExtra};
+      WHERE ${whereMov}${whereExtraCount};
     `;
 
     // -------------------------------------------------------------------------
@@ -325,7 +377,6 @@ export class EstadoCuentaService {
       (saldoInicial + Number(tot?.neto_periodo || 0)).toFixed(4),
     );
 
-    // Movimientos + count solo si includeMovs=true
     let rows: any[] = [];
     let countMovs = 0;
 
@@ -335,13 +386,14 @@ export class EstadoCuentaService {
         saldoInicial,
         limit,
         offset,
-        ...extraParams,
+        ...extraParamsMovs,
       ];
       rows = await this.ds.query(sqlMovs, movParams);
 
       countMovs =
-        (await this.ds.query(sqlCountMovs, [...params, ...extraParams]))?.[0]
-          ?.c ?? 0;
+        (
+          await this.ds.query(sqlCountMovs, [...params, ...extraParamsCount])
+        )?.[0]?.c ?? 0;
     }
 
     return {
