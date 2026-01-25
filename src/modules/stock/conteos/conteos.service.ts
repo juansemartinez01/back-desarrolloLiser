@@ -10,10 +10,24 @@ function toDecimal4(n: number | string): string {
   return v.toFixed(4);
 }
 
+async function calcularDiaSiguienteAR(qr: any, fecha: Date): Promise<string> {
+  const rows = await qr.query(
+    `
+    SELECT
+      ((($1::timestamptz AT TIME ZONE 'America/Argentina/Buenos_Aires')::date) + 1)::date AS dia
+    `,
+    [fecha.toISOString()],
+  );
+  return rows[0].dia; // 'YYYY-MM-DD'
+}
+
+
 @Injectable()
 export class ConteosService {
   constructor(private readonly ds: DataSource) {}
 
+
+  
   async ajustarPorConteo(dto: ConteoAjusteDto) {
     if (!dto.lineas?.length) {
       throw new BadRequestException(
@@ -27,6 +41,8 @@ export class ConteosService {
 
     try {
       const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
+
+      const diaOperativo = await calcularDiaSiguienteAR(qr, fecha);
 
       // Cabecera única para todo el conteo
       const mov = await qr.manager.save(
@@ -58,6 +74,34 @@ export class ConteosService {
           [productoId, almacenId, deltaStr],
         );
       };
+
+      const upsertStockInicialDiario = async (
+        dia: string, // 'YYYY-MM-DD'
+        productoId: number,
+        almacenId: number,
+        cantidadInicial: number,
+        movimientoId: string,
+      ) => {
+        await qr.query(
+          `
+    INSERT INTO public.stk_stock_inicial_diario
+      (dia, producto_id, almacen_id, cantidad_inicial, movimiento_id)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (dia, producto_id, almacen_id)
+    DO UPDATE SET
+      cantidad_inicial = EXCLUDED.cantidad_inicial,
+      movimiento_id    = EXCLUDED.movimiento_id
+    `,
+          [
+            dia,
+            productoId,
+            almacenId,
+            toDecimal4(cantidadInicial),
+            movimientoId,
+          ],
+        );
+      };
+
 
       const ajustesResumen: Array<{
         producto_id: number;
@@ -101,6 +145,15 @@ export class ConteosService {
             cantidad_contada: toDecimal4(contado),
             delta: toDecimal4(0),
           });
+
+          await upsertStockInicialDiario(
+            diaOperativo,
+            pid,
+            aid,
+            contado,
+            mov.id,
+          );
+
           continue;
         }
 
@@ -184,6 +237,7 @@ export class ConteosService {
             porBajar = Number((porBajar - toma).toFixed(4));
           }
 
+
           // Ajustar stock_actual (baja)
           await upsertStockActual(pid, aid, delta); // delta es negativo
         } else {
@@ -253,6 +307,8 @@ export class ConteosService {
           await upsertStockActual(pid, aid, delta);
         }
 
+        await upsertStockInicialDiario(diaOperativo, pid, aid, contado, mov.id);
+
         ajustesResumen.push({
           producto_id: pid,
           almacen_id: aid,
@@ -277,4 +333,6 @@ export class ConteosService {
       await qr.release();
     }
   }
+
+  
 }
