@@ -196,11 +196,26 @@ try {
     const qb = repo.createQueryBuilder('p');
 
     if (q.search) {
+      const s = q.search.trim();
+
+      const id = Number(s);
+      const isNumericId = s !== '' && Number.isInteger(id) && id > 0;
+
       qb.andWhere(
-        `(LOWER(p.nombre) LIKE LOWER(:s) OR LOWER(p.codigo_comercial) LIKE LOWER(:s))`,
-        { s: `%${q.search}%` },
+        `
+    (
+      LOWER(p.nombre) LIKE LOWER(:s)
+      OR LOWER(p.codigo_comercial) LIKE LOWER(:s)
+      ${isNumericId ? 'OR p.id = :id' : ''}
+    )
+    `,
+        {
+          s: `%${s}%`,
+          ...(isNumericId ? { id } : {}),
+        },
       );
     }
+
 
     if (q.soloActivos === 'true') {
       qb.andWhere('p.activo = true');
