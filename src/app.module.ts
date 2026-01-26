@@ -9,6 +9,7 @@ import { CcModule } from './modules/cc/cc.module';
 import { CajaModule } from './modules/caja/caja.module';
 import { FacturacionModule } from './modules/facturacion/facturacion.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BackofficeModule } from './modules/backoffice/backoffice.module';
 //import { OutboxModule } from './outbox/outbox.module';
 
 @Module({
@@ -30,6 +31,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CcModule,
     CajaModule,
     FacturacionModule,
+    BackofficeModule,
     //OutboxModule,
   ],
   controllers: [HealthController],
