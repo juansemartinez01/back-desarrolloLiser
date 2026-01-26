@@ -14,7 +14,13 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
 
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
   app.useGlobalFilters(new HttpExceptionFilter());
 
   
@@ -32,14 +38,8 @@ async function bootstrap() {
   
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
   
+
   await app.listen(process.env.PORT || 3000);
 }
 bootstrap();
