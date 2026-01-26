@@ -2,11 +2,11 @@ import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { BackofficeLotesFisicosService } from './backoffice-lotes-fisicos.service';
 import { QueryBackofficeLotesFisicosDto } from './dto/query-backoffice-lotes-fisicos.dto';
 
-@Controller('backoffice/lotes')
+@Controller('backoffice/lotes-fisicos')
 export class BackofficeLotesFisicosController {
   constructor(private readonly service: BackofficeLotesFisicosService) {}
 
-  @Get('unico-lote')
+  @Get('sin-contable')
   listarFisicosSinContable() {
     return this.service.listarFisicosSinContable();
   }
