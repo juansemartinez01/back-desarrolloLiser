@@ -6,7 +6,7 @@ import { QueryBackofficeLotesFisicosDto } from './dto/query-backoffice-lotes-fis
 export class BackofficeLotesFisicosController {
   constructor(private readonly service: BackofficeLotesFisicosService) {}
 
-  @Get('unico')
+  @Get('unico-lote')
   listarFisicosSinContable() {
     return this.service.listarFisicosSinContable();
   }
