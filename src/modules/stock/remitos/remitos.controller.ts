@@ -14,6 +14,7 @@ import { CreateDistribucionRemitoDto } from './dto/distribucion-remito.dto';
 import { IngresoRapidoRemitoDto } from './dto/ingreso-rapido-remito.dto';
 import { CompletarRemitoContableDto } from './dto/completar-remito-contable.dto';
 import { QueryRemitosIngresoRapidoDto } from './dto/query-remitos-ingreso-rapido.dto';
+import { CreateRemitoDirectoDto } from './dto/create-remito-directo.dto';
 
 @Controller('stock/remitos')
 export class RemitosController {
@@ -34,7 +35,7 @@ export class RemitosController {
   async listarIngresoRapido(@Query() q: QueryRemitosIngresoRapidoDto) {
     return this.service.listarRemitosIngresoRapido(q);
   }
-  
+
   @Get('obtener/:id')
   async detalle(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.obtenerDetalle(id);
@@ -55,5 +56,10 @@ export class RemitosController {
     @Body() dto: CompletarRemitoContableDto,
   ) {
     return this.service.completarRemitoContable(id, dto);
+  }
+
+  @Post('directo')
+  async crearDirecto(@Body() dto: CreateRemitoDirectoDto) {
+    return this.service.crearRemitoDirecto(dto);
   }
 }
