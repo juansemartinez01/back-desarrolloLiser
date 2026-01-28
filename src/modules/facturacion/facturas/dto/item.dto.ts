@@ -1,42 +1,16 @@
+// dto/item.dto.ts
 import { Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsInt,
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsInt, IsNumber, IsOptional, Min } from 'class-validator';
 
 export class FacturaItemDto {
-  @IsOptional()
   @IsInt()
-  Codigo?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  Producto?: string;
-
-  @IsInt()
-  AlicuotaIVA: number; // tabla AFIP
-
-  @IsOptional()
-  @IsBoolean()
-  Exento?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  Consignacion?: boolean;
+  ProductoId: number;
 
   @Type(() => Number)
   @IsNumber()
   @Min(0.000001)
   Cantidad: number;
 
-  // Uno de los 2 es requerido
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

@@ -14,6 +14,20 @@ import { normalizeItem, resumir } from './utils/factura-calc.util';
 import { ConsultarCondicionIvaDto } from '../emisores/dto/consultar-condicion-iva.dto';
 import axios from 'axios';
 
+function pctToAfipCode(pct: number): number {
+  // tolerancia por decimales
+  const x = Math.round(pct * 100) / 100;
+
+  if (x === 0) return 3; // 0%
+  if (x === 2.5) return 4; // 2.5%
+  if (x === 10.5) return 5; // 10.5%
+  if (x === 21) return 6; // 21%
+  if (x === 27) return 8; // 27%
+
+  // fallback: si viene algo raro, lo tratás como 21 o lo rechazás
+  throw new BadRequestException(`Alicuota IVA no soportada: ${pct}`);
+}
+
 function dec4(n: number | string) {
   const v = typeof n === 'string' ? Number(n) : n;
   return v.toFixed(4);
@@ -67,9 +81,53 @@ export class FacturasService {
       }
     }
 
+    // 3) Traer productos por ID (bulk)
+    const ids = dto.lista_productos.map((x) => x.ProductoId);
+    const productos = await this.ds.query(
+      `SELECT id, nombre, alicuota_iva, exento_iva, facturable, activo
+   FROM public.stk_productos
+   WHERE id = ANY($1::int[])`,
+      [ids],
+    );
+
+    const byId = new Map<number, any>(productos.map((p) => [Number(p.id), p]));
+
+    // validar que existan todos
+    for (const id of ids) {
+      const p = byId.get(id);
+      if (!p) throw new BadRequestException(`Producto inexistente: ${id}`);
+      if (!p.activo) throw new BadRequestException(`Producto inactivo: ${id}`);
+      if (!p.facturable)
+        throw new BadRequestException(`Producto no facturable: ${id}`);
+    }
+
+    const itemsEnriquecidos = dto.lista_productos.map((x) => {
+      const p = byId.get(x.ProductoId);
+
+      const exento = !!p.exento_iva;
+      const pct = Number(p.alicuota_iva); // viene numeric string
+      const afipCode = exento ? 3 : pctToAfipCode(pct);
+
+      return {
+        // datos para persistir / mostrar
+        ProductoId: x.ProductoId,
+        Producto: p.nombre,
+        // lo que usa el cálculo
+        AlicuotaIVA: afipCode,
+        Exento: exento,
+        Consignacion: true, // si lo manejás por producto, lo sacás también de stk_productos
+        Cantidad: x.Cantidad,
+        Precio_Unitario_Total: x.Precio_Unitario_Total,
+        Precio_Unitario_Neto: x.Precio_Unitario_Neto,
+        IVA_Unitario: x.IVA_Unitario,
+      };
+    });
+
+
     // 3) Normalizar items + sumar
-    const norm = dto.lista_productos.map(normalizeItem);
+    const norm = itemsEnriquecidos.map(normalizeItem);
     const sums = resumir(norm);
+
 
     // --- Cálculo de importes coherente con AFIP -------------------------------
     const facturaTipo = dto.factura_tipo ?? 11; // 11 = C por defecto
@@ -145,15 +203,16 @@ export class FacturasService {
 
       for (const it of norm) {
         await qr.query(
-          `INSERT INTO public.fac_facturas_items
-           (factura_id, codigo, producto, alicuota_iva, exento, consignacion,
+                  `INSERT INTO public.fac_facturas_items
+          (factura_id, producto_id, codigo, producto, alicuota_iva, exento, consignacion,
             cantidad, precio_unitario_total, precio_unitario_neto, iva_unitario,
             total_neto, total_iva, total_con_iva)
-         VALUES ($1,$2,$3,$4,COALESCE($5,false),COALESCE($6,true),
-                 $7,$8,$9,$10,$11,$12,$13)`,
+          VALUES ($1,$2,$3,$4,$5,COALESCE($6,false),COALESCE($7,true),
+                  $8,$9,$10,$11,$12,$13,$14)`,
           [
             fac.id,
-            (it as any).Codigo ?? null,
+            (it as any).ProductoId ?? null,
+            null, // si querés, podés mapear a algún “codigo” interno
             (it as any).Producto ?? null,
             it.AlicuotaIVA,
             it.Exento ?? false,
@@ -189,8 +248,8 @@ export class FacturasService {
         importe_no_gravado: Number(importeNoGravado.toFixed(2)),
         importe_exento: Number(importeExento.toFixed(2)),
         importe_tributos: Number(importeTributos.toFixed(2)),
-        lista_productos: dto.lista_productos.map((x) => ({
-          Codigo: x.Codigo ?? null,
+        lista_productos: itemsEnriquecidos.map((x) => ({
+          Codigo: null,
           Producto: x.Producto ?? null,
           AlicuotaIVA: x.AlicuotaIVA,
           Exento: !!x.Exento,

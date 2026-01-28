@@ -14,6 +14,10 @@ export class FacturaItem extends BaseEntity {
   @Column({ type: 'int', nullable: true, name: 'codigo' })
   Codigo?: number | null;
 
+  @Index()
+  @Column({ type: 'int', nullable: true, name: 'producto_id' })
+  ProductoId?: number | null;
+
   @Column({ type: 'varchar', length: 300, nullable: true, name: 'producto' })
   Producto?: string | null;
 
