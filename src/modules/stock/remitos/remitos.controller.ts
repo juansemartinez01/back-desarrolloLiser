@@ -31,6 +31,11 @@ export class RemitosController {
     return this.service.crearRemitoIngresoRapido(dto);
   }
 
+  @Post('directo')
+  async crearDirecto(@Body() dto: CreateRemitoDirectoDto) {
+    return this.service.crearRemitoDirecto(dto);
+  }
+
   @Get('obtener-ingreso-rapido')
   async listarIngresoRapido(@Query() q: QueryRemitosIngresoRapidoDto) {
     return this.service.listarRemitosIngresoRapido(q);
@@ -56,10 +61,5 @@ export class RemitosController {
     @Body() dto: CompletarRemitoContableDto,
   ) {
     return this.service.completarRemitoContable(id, dto);
-  }
-
-  @Post('directo')
-  async crearDirecto(@Body() dto: CreateRemitoDirectoDto) {
-    return this.service.crearRemitoDirecto(dto);
   }
 }
