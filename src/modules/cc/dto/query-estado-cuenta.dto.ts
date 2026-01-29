@@ -14,12 +14,17 @@ import { PagoCuenta } from '../enums/pago-cuenta.enum';
 
 export type MovimientoTipo = 'CARGO' | 'PAGO' | 'NC' | 'ND';
 
-function toBool(v: any) {
+function toBool(v: any): boolean | undefined {
   if (v === true || v === false) return v;
-  if (typeof v === 'string')
-    return ['true', '1', 'yes', 'si'].includes(v.toLowerCase());
+  if (v === null || v === undefined) return undefined;
+
+  const s = String(v).trim().toLowerCase();
+  if (['true', '1', 'yes', 'si'].includes(s)) return true;
+  if (['false', '0', 'no'].includes(s)) return false;
+
   return undefined;
 }
+
 
 function parseTipos(v: any): MovimientoTipo[] | undefined {
   if (!v) return undefined;

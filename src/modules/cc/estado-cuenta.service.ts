@@ -25,10 +25,8 @@ export class EstadoCuentaService {
     // -------------------------------------------------------------------------
     // Normalizar query params (Postman suele mandar strings)
     // -------------------------------------------------------------------------
-    const includeMovs =
-      (q as any).include_movimientos === undefined
-        ? true
-        : String((q as any).include_movimientos) !== 'false';
+    const includeMovs = q.include_movimientos ?? true;
+
 
     const search =
       typeof (q as any).q === 'string' && (q as any).q.trim()
