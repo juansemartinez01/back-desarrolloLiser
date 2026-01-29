@@ -17,9 +17,11 @@ function parseBool(v: any, def = true): boolean {
 export class EstadoCuentaService {
   constructor(private readonly ds: DataSource) {}
 
-  async estadoCuenta(q: QueryEstadoCuentaDto) {
-    // ✅ Postman manda strings; esto lo hace robusto aunque no haya transform global
-    const includeMovs = parseBool((q as any).include_movimientos, true);
+  async estadoCuenta(q: QueryEstadoCuentaDto, includeMovsRaw?: any) {
+    const includeMovs = parseBool(
+      includeMovsRaw ?? (q as any).include_movimientos,
+      true,
+    );
 
     const search =
       typeof (q as any).q === 'string' && (q as any).q.trim()
