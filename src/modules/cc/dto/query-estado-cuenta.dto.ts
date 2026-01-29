@@ -48,9 +48,10 @@ export class QueryEstadoCuentaDto {
   @IsDateString()
   hasta?: string; // exclusivo
 
+  // ✅ ahora soporta AMBAS
   @IsOptional()
-  @IsEnum(PagoCuenta)
-  cuenta?: PagoCuenta; // CUENTA1 | CUENTA2 (en tu service la tratás como requerida)
+  @IsIn(['CUENTA1', 'CUENTA2', 'AMBAS'])
+  cuenta?: 'CUENTA1' | 'CUENTA2' | 'AMBAS'; // CUENTA1 | CUENTA2 (en tu service la tratás como requerida)
 
   @IsOptional()
   @IsIn(['ASC', 'DESC'])
