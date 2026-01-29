@@ -6,6 +6,9 @@ import { QueryEstadoCuentaDto } from './dto/query-estado-cuenta.dto';
 export class EstadoCuentaService {
   constructor(private readonly ds: DataSource) {}
 
+
+  
+
   /**
    * Estado de cuenta por cliente (por cuenta):
    * - saldo_inicial (antes de 'desde')
@@ -25,7 +28,8 @@ export class EstadoCuentaService {
     // -------------------------------------------------------------------------
     // Normalizar query params (Postman suele mandar strings)
     // -------------------------------------------------------------------------
-    const includeMovs = q.include_movimientos ?? true;
+    const includeMovs = parseBool((q as any).include_movimientos, true);
+
 
 
     const search =
@@ -423,4 +427,15 @@ export class EstadoCuentaService {
       pagination: { page, limit, total: Number(countMovs) },
     };
   }
+}
+
+function parseBool(v: any, def = true): boolean {
+  if (v === true || v === false) return v;
+  if (v === null || v === undefined) return def;
+
+  const s = String(v).trim().toLowerCase();
+  if (['true', '1', 'yes', 'si'].includes(s)) return true;
+  if (['false', '0', 'no'].includes(s)) return false;
+
+  return def;
 }
