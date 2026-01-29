@@ -2,7 +2,15 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { QueryEstadoCuentaDto } from './dto/query-estado-cuenta.dto';
 
+function pickQueryValue(v: any) {
+  // Postman / Express pueden mandar array si el param vino repetido
+  if (Array.isArray(v)) return v.length ? v[v.length - 1] : undefined;
+  return v;
+}
+
 function parseBool(v: any, def = true): boolean {
+  v = pickQueryValue(v);
+
   if (v === true || v === false) return v;
   if (v === null || v === undefined) return def;
 
@@ -13,6 +21,7 @@ function parseBool(v: any, def = true): boolean {
   return def;
 }
 
+
 @Injectable()
 export class EstadoCuentaService {
   constructor(private readonly ds: DataSource) {}
@@ -22,6 +31,8 @@ export class EstadoCuentaService {
       includeMovsRaw ?? (q as any).include_movimientos,
       true,
     );
+
+    
 
     const search =
       typeof (q as any).q === 'string' && (q as any).q.trim()
