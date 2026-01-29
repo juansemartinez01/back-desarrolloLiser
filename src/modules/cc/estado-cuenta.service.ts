@@ -18,7 +18,7 @@ export class EstadoCuentaService {
   constructor(private readonly ds: DataSource) {}
 
   async estadoCuenta(q: QueryEstadoCuentaDto) {
-    // ✅ include_movimientos robusto (aunque no haya transform global)
+    // ✅ Postman manda strings; esto lo hace robusto aunque no haya transform global
     const includeMovs = parseBool((q as any).include_movimientos, true);
 
     const search =
@@ -29,59 +29,97 @@ export class EstadoCuentaService {
     const tiposRaw: any = (q as any).tipos;
     let tipos: string[] | undefined;
     if (Array.isArray(tiposRaw)) {
-      tipos = tiposRaw.map((x) => String(x).trim()).filter(Boolean);
+      tipos = tiposRaw
+        .map((x) => String(x).trim().toUpperCase())
+        .filter(Boolean);
     } else if (typeof tiposRaw === 'string' && tiposRaw.trim()) {
       tipos = tiposRaw
         .split(',')
-        .map((x) => x.trim())
+        .map((x) => x.trim().toUpperCase())
         .filter(Boolean);
     }
 
     const clienteId = q.cliente_id;
     if (!clienteId) throw new BadRequestException('cliente_id requerido');
 
-    const cuentaReq = (q as any).cuenta;
-    if (!cuentaReq)
+    const cuentaParam = String((q as any).cuenta || '').toUpperCase();
+    if (!cuentaParam)
       throw new BadRequestException('cuenta requerida (CUENTA1/CUENTA2/AMBAS)');
 
-    // ✅ normalizar cuentas
-    const cuentas: string[] =
-      String(cuentaReq).toUpperCase() === 'AMBAS'
-        ? ['CUENTA1', 'CUENTA2']
-        : [String(cuentaReq).toUpperCase()];
+    // ✅ soporta AMBAS
+    const cuentas =
+      cuentaParam === 'AMBAS' ? ['CUENTA1', 'CUENTA2'] : [cuentaParam];
 
     const order = (q.order ?? 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     const page = Math.max(1, q.page ?? 1);
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 500);
     const offset = (page - 1) * limit;
 
+    /**
+     * ✅ MUY IMPORTANTE:
+     * En tu DB, cuenta es ENUM (cc_pago_cuenta). Hay que castear:
+     * - single: $2::cc_pago_cuenta
+     * - array:  $2::cc_pago_cuenta[]
+     */
+    const PG_ENUM_CUENTA = 'cc_pago_cuenta';
+
+    const isAmbas = cuentas.length > 1;
+
     // -------------------------------------------------------------------------
     // SALDO INICIAL (antes de 'desde') - NO filtra por tipos/q
-    // ahora por cuentas[]
     // -------------------------------------------------------------------------
     let saldoInicial = 0;
     if (q.desde) {
       const desde = new Date(q.desde);
-      const sqlSaldo = `
+
+      const sqlSaldo = isAmbas
+        ? `
         WITH tot_cargos AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_cargos
-          WHERE cliente_id = $1 AND cuenta = ANY($2::text[]) AND fecha < $3
+          WHERE cliente_id = $1 AND cuenta = ANY($2::${PG_ENUM_CUENTA}[]) AND fecha < $3
         ),
         tot_pagos AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_pagos
-          WHERE cliente_id = $1 AND cuenta = ANY($2::text[]) AND fecha < $3
+          WHERE cliente_id = $1 AND cuenta = ANY($2::${PG_ENUM_CUENTA}[]) AND fecha < $3
         ),
         tot_nc AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_ajustes
-          WHERE cliente_id = $1 AND cuenta = ANY($2::text[]) AND tipo = 'NC' AND fecha < $3
+          WHERE cliente_id = $1 AND cuenta = ANY($2::${PG_ENUM_CUENTA}[]) AND tipo = 'NC' AND fecha < $3
         ),
         tot_nd AS (
           SELECT COALESCE(SUM(importe),0)::numeric AS s
           FROM public.cc_ajustes
-          WHERE cliente_id = $1 AND cuenta = ANY($2::text[]) AND tipo = 'ND' AND fecha < $3
+          WHERE cliente_id = $1 AND cuenta = ANY($2::${PG_ENUM_CUENTA}[]) AND tipo = 'ND' AND fecha < $3
+        )
+        SELECT
+          (SELECT s FROM tot_cargos)
+          + (SELECT s FROM tot_nd)
+          - (SELECT s FROM tot_pagos)
+          - (SELECT s FROM tot_nc) AS saldo_ini;
+      `
+        : `
+        WITH tot_cargos AS (
+          SELECT COALESCE(SUM(importe),0)::numeric AS s
+          FROM public.cc_cargos
+          WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND fecha < $3
+        ),
+        tot_pagos AS (
+          SELECT COALESCE(SUM(importe),0)::numeric AS s
+          FROM public.cc_pagos
+          WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND fecha < $3
+        ),
+        tot_nc AS (
+          SELECT COALESCE(SUM(importe),0)::numeric AS s
+          FROM public.cc_ajustes
+          WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND tipo = 'NC' AND fecha < $3
+        ),
+        tot_nd AS (
+          SELECT COALESCE(SUM(importe),0)::numeric AS s
+          FROM public.cc_ajustes
+          WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND tipo = 'ND' AND fecha < $3
         )
         SELECT
           (SELECT s FROM tot_cargos)
@@ -89,19 +127,26 @@ export class EstadoCuentaService {
           - (SELECT s FROM tot_pagos)
           - (SELECT s FROM tot_nc) AS saldo_ini;
       `;
-      const r = await this.ds.query(sqlSaldo, [clienteId, cuentas, desde]);
+
+      const r = await this.ds.query(sqlSaldo, [
+        clienteId,
+        isAmbas ? cuentas : cuentas[0],
+        desde,
+      ]);
       saldoInicial = Number(r?.[0]?.saldo_ini || 0);
     }
 
     // -------------------------------------------------------------------------
-    // Filtros base del período para movimientos: cliente + cuentas[] + desde/hasta
+    // WHERE base para MOVIMIENTOS (cliente+cuenta(s)+desde/hasta)
     // -------------------------------------------------------------------------
-    const params: any[] = [clienteId, cuentas];
+    const params: any[] = [clienteId, isAmbas ? cuentas : cuentas[0]];
     let p = 3;
 
     const conds: string[] = [
       'mov.cliente_id = $1',
-      'mov.cuenta = ANY($2::text[])',
+      isAmbas
+        ? `mov.cuenta = ANY($2::${PG_ENUM_CUENTA}[])`
+        : `mov.cuenta = $2::${PG_ENUM_CUENTA}`,
     ];
 
     if (q.desde) {
@@ -114,6 +159,7 @@ export class EstadoCuentaService {
     }
     const whereMov = conds.join(' AND ');
 
+    // índices paramétricos para sqlMovs
     const siIdx = p++;
     const limitIdx = p++;
     const offsetIdx = p++;
@@ -128,6 +174,7 @@ export class EstadoCuentaService {
       extraParamsMovs.push(tipos);
       pxMovs++;
     }
+
     if (search) {
       extraCondsMovs.push(
         `(mov.ref ILIKE $${pxMovs} OR mov.observacion ILIKE $${pxMovs})`,
@@ -135,6 +182,7 @@ export class EstadoCuentaService {
       extraParamsMovs.push(`%${search}%`);
       pxMovs++;
     }
+
     const whereExtraMovs = extraCondsMovs.length
       ? ` AND ${extraCondsMovs.join(' AND ')}`
       : '';
@@ -149,6 +197,7 @@ export class EstadoCuentaService {
       extraParamsCount.push(tipos);
       pxCount++;
     }
+
     if (search) {
       extraCondsCount.push(
         `(mov.ref ILIKE $${pxCount} OR mov.observacion ILIKE $${pxCount})`,
@@ -156,14 +205,18 @@ export class EstadoCuentaService {
       extraParamsCount.push(`%${search}%`);
       pxCount++;
     }
+
     const whereExtraCount = extraCondsCount.length
       ? ` AND ${extraCondsCount.join(' AND ')}`
       : '';
 
     // -------------------------------------------------------------------------
-    // MOVIMIENTOS: ahora cada SELECT filtra por cuentas[]
-    // y mantenemos mov.cuenta para poder devolverla en cada fila.
+    // SQL MOVS / TOTALES / COUNT
     // -------------------------------------------------------------------------
+    const cuentaFilterSql = isAmbas
+      ? `= ANY($2::${PG_ENUM_CUENTA}[])`
+      : `= $2::${PG_ENUM_CUENTA}`;
+
     const sqlMovs = `
       WITH mov AS (
         SELECT
@@ -176,7 +229,7 @@ export class EstadoCuentaService {
           c.observacion,
           (c.importe)::numeric(18,4) AS importe_signed
         FROM public.cc_cargos c
-        WHERE c.cliente_id = $1 AND c.cuenta = ANY($2::text[])
+        WHERE c.cliente_id = $1 AND c.cuenta ${cuentaFilterSql}
 
         UNION ALL
 
@@ -190,7 +243,7 @@ export class EstadoCuentaService {
           p.observacion,
           (-p.importe)::numeric(18,4) AS importe_signed
         FROM public.cc_pagos p
-        WHERE p.cliente_id = $1 AND p.cuenta = ANY($2::text[])
+        WHERE p.cliente_id = $1 AND p.cuenta ${cuentaFilterSql}
 
         UNION ALL
 
@@ -204,7 +257,7 @@ export class EstadoCuentaService {
           a.observacion,
           (-a.importe)::numeric(18,4) AS importe_signed
         FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.cuenta = ANY($2::text[]) AND a.tipo = 'NC'
+        WHERE a.cliente_id = $1 AND a.cuenta ${cuentaFilterSql} AND a.tipo = 'NC'
 
         UNION ALL
 
@@ -218,7 +271,7 @@ export class EstadoCuentaService {
           a.observacion,
           (a.importe)::numeric(18,4) AS importe_signed
         FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.cuenta = ANY($2::text[]) AND a.tipo = 'ND'
+        WHERE a.cliente_id = $1 AND a.cuenta ${cuentaFilterSql} AND a.tipo = 'ND'
       ),
       filtrado AS (
         SELECT * FROM mov mov
@@ -244,32 +297,29 @@ export class EstadoCuentaService {
       LIMIT $${limitIdx} OFFSET $${offsetIdx};
     `;
 
-    // -------------------------------------------------------------------------
-    // TOTALES período (NO filtra por tipos/q) pero sí por cuentas[]
-    // -------------------------------------------------------------------------
     const sqlTotales = `
       WITH mov AS (
         SELECT c.fecha, 'CARGO'::text AS tipo, (c.importe)::numeric AS amt
         FROM public.cc_cargos c
-        WHERE c.cliente_id = $1 AND c.cuenta = ANY($2::text[])
+        WHERE c.cliente_id = $1 AND c.cuenta ${cuentaFilterSql}
 
         UNION ALL
 
         SELECT p.fecha, 'PAGO'::text, (-p.importe)::numeric
         FROM public.cc_pagos p
-        WHERE p.cliente_id = $1 AND p.cuenta = ANY($2::text[])
+        WHERE p.cliente_id = $1 AND p.cuenta ${cuentaFilterSql}
 
         UNION ALL
 
         SELECT a.fecha, 'NC'::text, (-a.importe)::numeric
         FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.cuenta = ANY($2::text[]) AND a.tipo = 'NC'
+        WHERE a.cliente_id = $1 AND a.cuenta ${cuentaFilterSql} AND a.tipo = 'NC'
 
         UNION ALL
 
         SELECT a.fecha, 'ND'::text, (a.importe)::numeric
         FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.cuenta = ANY($2::text[]) AND a.tipo = 'ND'
+        WHERE a.cliente_id = $1 AND a.cuenta ${cuentaFilterSql} AND a.tipo = 'ND'
       )
       SELECT
         COALESCE(SUM(CASE WHEN tipo = 'CARGO' THEN amt ELSE 0 END),0)::numeric(18,4) AS total_cargos,
@@ -289,7 +339,7 @@ export class EstadoCuentaService {
                COALESCE(c.venta_ref_tipo,'') || ':' || COALESCE(c.venta_ref_id,'') AS ref,
                c.observacion
         FROM public.cc_cargos c
-        WHERE c.cliente_id = $1 AND c.cuenta = ANY($2::text[])
+        WHERE c.cliente_id = $1 AND c.cuenta ${cuentaFilterSql}
 
         UNION ALL
 
@@ -297,7 +347,7 @@ export class EstadoCuentaService {
                COALESCE(p.referencia_externa,'') AS ref,
                p.observacion
         FROM public.cc_pagos p
-        WHERE p.cliente_id = $1 AND p.cuenta = ANY($2::text[])
+        WHERE p.cliente_id = $1 AND p.cuenta ${cuentaFilterSql}
 
         UNION ALL
 
@@ -305,7 +355,7 @@ export class EstadoCuentaService {
                COALESCE(a.referencia_externa,'') AS ref,
                a.observacion
         FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.cuenta = ANY($2::text[]) AND a.tipo = 'NC'
+        WHERE a.cliente_id = $1 AND a.cuenta ${cuentaFilterSql} AND a.tipo = 'NC'
 
         UNION ALL
 
@@ -313,15 +363,17 @@ export class EstadoCuentaService {
                COALESCE(a.referencia_externa,'') AS ref,
                a.observacion
         FROM public.cc_ajustes a
-        WHERE a.cliente_id = $1 AND a.cuenta = ANY($2::text[]) AND a.tipo = 'ND'
+        WHERE a.cliente_id = $1 AND a.cuenta ${cuentaFilterSql} AND a.tipo = 'ND'
       )
       SELECT COUNT(1)::int AS c
       FROM mov mov
       WHERE ${whereMov}${whereExtraCount};
     `;
 
-    // ejecutar
-    const totParams: any[] = [clienteId, cuentas];
+    // -------------------------------------------------------------------------
+    // EJECUTAR (totales siempre; movs/count sólo si includeMovs)
+    // -------------------------------------------------------------------------
+    const totParams: any[] = [clienteId, isAmbas ? cuentas : cuentas[0]];
     if (q.desde) totParams.push(new Date(q.desde));
     if (q.hasta) totParams.push(new Date(q.hasta));
 
@@ -352,19 +404,23 @@ export class EstadoCuentaService {
 
     return {
       cliente_id: clienteId,
-      cuenta: String(cuentaReq).toUpperCase(), // CUENTA1 | CUENTA2 | AMBAS
-      cuentas, // ✅ útil para debug/front
-      rango: { desde: q.desde ?? null, hasta: q.hasta ?? null, order },
+      cuenta: cuentaParam, // CUENTA1 | CUENTA2 | AMBAS
+      rango: {
+        desde: q.desde ?? null,
+        hasta: q.hasta ?? null,
+        order,
+      },
       saldo_inicial: Number(saldoInicial.toFixed(4)),
       movimientos: rows.map((r: any) => ({
         fecha: r.fecha,
-        cuenta: r.cuenta, // ✅ si pedís AMBAS, te dice de cuál vino
         tipo: r.tipo,
         origen_id: r.origen_id,
         referencia: r.ref,
         observacion: r.observacion,
         importe: Number(Number(r.importe_signed).toFixed(4)),
         saldo_corrido: Number(Number(r.saldo_corrido).toFixed(4)),
+        // 👇 si te sirve, podés devolverla (no rompe nada si el front ignora)
+        // cuenta: r.cuenta,
       })),
       totales_periodo: {
         total_cargos: Number(tot?.total_cargos || 0),
