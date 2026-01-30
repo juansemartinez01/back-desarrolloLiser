@@ -26,8 +26,8 @@ export class MovimientoVacio {
   @Column({ type: 'timestamptz', default: () => 'now()' })
   fecha: Date;
 
-  @Column({ type: 'int' })
-  cliente_id: number; // 👈 si es uuid, cambiar a string + type:'uuid'
+  @Column({ type: 'uuid' })
+  cliente_id: string; // 👈 si es uuid, cambiar a string + type:'uuid'
 
   @ManyToOne(() => Envase, { eager: false })
   @JoinColumn({ name: 'envase_id' })

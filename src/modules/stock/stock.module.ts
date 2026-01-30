@@ -56,6 +56,7 @@ import { OutboxSenderService } from './outbox/outbox-sender.service';
 import { OutboxCronService } from './outbox/outbox-cron.service';
 import { StockInicialService } from './conteos/stock-inicial/stock-inicial.service';
 import { StockInicialController } from './conteos/stock-inicial/stock-inicial.controller';
+import { VaciosModule } from './vacios/vacios.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { StockInicialController } from './conteos/stock-inicial/stock-inicial.co
     ReservasModule,
     EncontradosModule,
     TransferenciasPendientesModule,
+    VaciosModule,
   ],
   controllers: [
     StockController,
@@ -100,7 +102,6 @@ import { StockInicialController } from './conteos/stock-inicial/stock-inicial.co
     LotesFisicosController,
     ProductosAdminController,
     StockInicialController,
-    
   ],
   providers: [
     StockService,

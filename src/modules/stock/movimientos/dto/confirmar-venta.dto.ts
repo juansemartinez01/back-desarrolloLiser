@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class ConfirmarVentaDto {
   @IsNumber()
@@ -28,4 +28,15 @@ export class ConfirmarVentaDto {
 
   @IsOptional()
   fecha?: string;
+
+  @IsOptional()
+  vacios?: Array<{
+    envase_id: number;
+    cantidad: number;
+    precio_unitario?: number; // opcional (si querés snapshot)
+  }>;
+
+  @IsOptional()
+  @IsUUID()
+  cliente_id: string;
 }
