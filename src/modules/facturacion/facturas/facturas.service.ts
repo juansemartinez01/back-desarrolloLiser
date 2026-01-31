@@ -203,7 +203,7 @@ export class FacturasService {
 
       for (const it of norm) {
         await qr.query(
-                  `INSERT INTO public.fac_facturas_items
+          `INSERT INTO public.fac_facturas_items
           (factura_id, producto_id, codigo, producto, alicuota_iva, exento, consignacion,
             cantidad, precio_unitario_total, precio_unitario_neto, iva_unitario,
             total_neto, total_iva, total_con_iva)
@@ -291,6 +291,7 @@ export class FacturasService {
       }
 
       // 7) Persistir salida AFIP
+      // 7) Persistir salida AFIP
       const upd = await this.ds.query(
         `UPDATE public.fac_facturas
          SET estado='ACEPTADA',
@@ -316,7 +317,49 @@ export class FacturasService {
         ],
       );
 
-      return { ok: true, factura: upd[0] };
+      const factura = upd[0];
+
+      // 8) HOOK: marcar pedido como facturado en VENTAS (best-effort, no rompe)
+      try {
+        if (factura?.referencia_interna) {
+          const base = (process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
+          if (!base) {
+            this.logger.warn(
+              `VENTAS_API_BASE no configurado: no se marca facturado (fac=${factura.id}).`,
+            );
+          } else {
+            await axios.post(
+              `${base}/pedidos/marcar-facturado`,
+              {
+                referencia_interna: factura.referencia_interna,
+                factura_admin_id: factura.id,
+                cae: factura.cae,
+                nro_comprobante: factura.nro_comprobante,
+                punto_venta: factura.punto_venta,
+                factura_tipo: factura.factura_tipo,
+                facturado: true,
+              },
+              {
+                timeout: 7000,
+                headers: {
+                  // si no usás token, borrá esto
+                  'X-Internal-Token': process.env.VENTAS_INTERNAL_TOKEN ?? '',
+                },
+              },
+            );
+          }
+        }
+      } catch (e: any) {
+        // No rompemos la emisión: solo log.
+        const msg = e?.response?.data
+          ? JSON.stringify(e.response.data)
+          : (e?.message ?? 'Error');
+        this.logger.error(
+          `Factura ACEPTADA pero NO se pudo marcar pedido facturado en ventas. fac=${factura?.id} ref=${factura?.referencia_interna} err=${msg}`,
+        );
+      }
+
+      return { ok: true, factura };
     } catch (e) {
       try {
         await qr.rollbackTransaction();
