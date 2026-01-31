@@ -6,13 +6,14 @@ import { MovimientoStock } from './entities/movimiento-stock.entity';
 import { MovimientoStockDetalle } from './entities/movimiento-stock-detalle.entity';
 import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
 import { ConfirmarVentaDto } from './dto/confirmar-venta.dto';
+import { VaciosService } from '../vacios/vacios.service';
 @Injectable()
 export class VentasService {
   constructor(
     private readonly ds: DataSource,
     private readonly reservasService: ReservasService,
+    private readonly vaciosService: VaciosService,
   ) {}
-  
 
   async confirmarVenta(dto: ConfirmarVentaDto) {
     const qr = this.ds.createQueryRunner();
@@ -34,6 +35,16 @@ export class VentasService {
         observacion: dto.observacion,
         referencia_id: dto.referencia_id,
       });
+
+      if (dto.vacios?.length) {
+        await this.vaciosService.registrarEntregaPedidoTx(qr, {
+          cliente_id: dto.cliente_id,
+          pedido_id: dto.pedido_id,
+          pedido_codigo: dto.referencia_id, // "PED-..."
+          fecha: dto.fecha,
+          items: dto.vacios,
+        });
+      }
 
       await qr.commitTransaction();
       return {

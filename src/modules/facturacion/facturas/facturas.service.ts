@@ -123,11 +123,9 @@ export class FacturasService {
       };
     });
 
-
     // 3) Normalizar items + sumar
     const norm = itemsEnriquecidos.map(normalizeItem);
     const sums = resumir(norm);
-
 
     // --- Cálculo de importes coherente con AFIP -------------------------------
     const facturaTipo = dto.factura_tipo ?? 11; // 11 = C por defecto
@@ -317,6 +315,8 @@ export class FacturasService {
         ],
       );
 
+      
+
       const factura = upd[0];
 
       // 8) HOOK: marcar pedido como facturado en VENTAS (best-effort, no rompe)
@@ -359,7 +359,15 @@ export class FacturasService {
         );
       }
 
-      return { ok: true, factura };
+      
+      const syncVentas = await this.notificarVentasPedidoFacturado(upd[0]);
+
+      return {
+        ok: true,
+        factura: upd[0],
+        sync_ventas: syncVentas, // 👈 te queda trazabilidad de si se marcó o no
+      };
+
     } catch (e) {
       try {
         await qr.rollbackTransaction();
@@ -453,6 +461,46 @@ export class FacturasService {
       throw new BadGatewayException(
         e?.message ?? 'Error consultando condición IVA',
       );
+    }
+  }
+
+  private async notificarVentasPedidoFacturado(factura: any) {
+    const base = process.env.VENTAS_API_BASE;
+    const key = process.env.VENTAS_API_KEY;
+
+    if (!base || !key) {
+      this.logger.warn(
+        'VENTAS_API_BASE/VENTAS_API_KEY no configurados. No se notificará a Ventas.',
+      );
+      return { ok: false, skipped: true, reason: 'missing_env' };
+    }
+
+    const payload = {
+      referencia_interna: factura.referencia_interna,
+      factura_admin_id: factura.id,
+      cae: factura.cae,
+      nro_comprobante: factura.nro_comprobante,
+      punto_venta: factura.punto_venta,
+      factura_tipo: factura.factura_tipo,
+      facturado: true,
+    };
+
+    try {
+      const url = `${base.replace(/\/$/, '')}/pedidos/marcar-facturado`;
+      const r = await axios.post(url, payload, {
+        headers: { 'x-api-key': key },
+        timeout: 8000,
+      });
+      return { ok: true, data: r.data };
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.message ??
+        e?.message ??
+        'Error notificando a Ventas';
+      this.logger.error(
+        `No se pudo marcar pedido como facturado en Ventas: ${msg}`,
+      );
+      return { ok: false, error: msg };
     }
   }
 }
