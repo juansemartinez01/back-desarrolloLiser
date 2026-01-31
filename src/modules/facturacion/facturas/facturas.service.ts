@@ -486,9 +486,13 @@ export class FacturasService {
     };
 
     try {
+      const apiKey = process.env.VENTAS_API_KEY ?? '';
       const url = `${base.replace(/\/$/, '')}/pedidos/marcar-facturado`;
       const r = await axios.post(url, payload, {
-        headers: { 'x-api-key': key },
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
         timeout: 8000,
       });
       return { ok: true, data: r.data };
