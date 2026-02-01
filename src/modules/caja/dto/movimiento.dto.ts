@@ -7,8 +7,11 @@ import { Type } from 'class-transformer';
 import { PagoDetalleDto } from './pago-detalle.dto';
 
 export class MovimientoDto {
+  // Solo requerido si NO viene pagos[]
+  @ValidateIf((o) => !o.pagos || o.pagos.length === 0)
+  @Type(() => Number)
   @IsNumber()
-  monto: number;
+  monto?: number;
 
   // ✅ Nuevo: split payments
   @ValidateIf((o) => o.pagos != null)
@@ -22,8 +25,6 @@ export class MovimientoDto {
   @ValidateIf((o) => !o.pagos || o.pagos.length === 0)
   @IsEnum(MetodoPago)
   metodoPago?: MetodoPago;
-
-  
 
   @IsEnum(TipoMovimiento)
   tipo: TipoMovimiento;
