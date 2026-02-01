@@ -4,6 +4,7 @@ import {
   PrimaryGeneratedColumn,
   ManyToOne,
   Index,
+  JoinColumn,
 } from 'typeorm';
 import { CajaMovimiento } from './caja-movimiento.entity';
 import { MetodoPago } from '../enums/metodo-pago.enum';
@@ -16,29 +17,31 @@ export class CajaMovimientoDetalle {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
+  // ✅ en DB es movimiento_id
+  @Column({ type: 'uuid', name: 'movimiento_id' })
   movimientoId: string;
 
   @ManyToOne(() => CajaMovimiento, (m) => m.detalles, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'movimiento_id' }) // ✅ clave
   movimiento: CajaMovimiento;
 
-  @Column({ type: 'enum', enum: MetodoPago })
+  // OJO: si en DB es varchar (como te mostraba information_schema),
+  // dejalo como varchar para NO forzar enum en Postgres con synchronize.
+  @Column({ type: 'varchar', name: 'metodo_pago' })
   metodoPago: MetodoPago;
 
-  // siempre POSITIVO. El signo lo define el movimiento.tipo (INGRESO/EGRESO)
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   monto: number;
 
-  // --- Campos opcionales por método ---
-  @Column({ type: 'enum', enum: TarjetaTipo, nullable: true })
+  @Column({ type: 'varchar', nullable: true, name: 'tarjeta_tipo' })
   tarjetaTipo?: TarjetaTipo;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'tarjeta_ultimos4' })
   tarjetaUltimos4?: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, name: 'codigo_autorizacion' })
   codigoAutorizacion?: string;
 
-  @Column({ nullable: true })
-  nombreEntidad?: string; // Banco / billetera / etc.
+  @Column({ nullable: true, name: 'nombre_entidad' })
+  nombreEntidad?: string;
 }

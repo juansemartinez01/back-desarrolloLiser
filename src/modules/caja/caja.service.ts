@@ -156,10 +156,25 @@ export class CajaService {
         apertura,
         fecha: new Date(),
         tipo: dto.tipo,
+
+        // ✅ consistencia con tu entity (string | null)
         referencia: dto.referencia ?? null,
+
         usuario: dto.usuario,
         montoTotal: total,
+
+        // ✅ compat viejo: guardo resumen (opcional)
+        monto: total,
+        metodoPago: pagos.length === 1 ? pagos[0].metodoPago : null,
+        tarjetaTipo: pagos.length === 1 ? (pagos[0].tarjetaTipo ?? null) : null,
+        tarjetaUltimos4:
+          pagos.length === 1 ? (pagos[0].tarjetaUltimos4 ?? null) : null,
+        codigoAutorizacion:
+          pagos.length === 1 ? (pagos[0].codigoAutorizacion ?? null) : null,
+        nombreEntidad:
+          pagos.length === 1 ? (pagos[0].nombreEntidad ?? null) : null,
       });
+
 
       const savedMov = await manager.getRepository(CajaMovimiento).save(mov);
 
