@@ -339,12 +339,12 @@ export class FacturasService {
 
       // ✅ Por ahora: NO sync acá (vos dijiste endpoint aparte)
       // Si querés habilitarlo después, descomentás:
-      // const syncVentas = await this.notificarVentasPedidoFacturado(factura);
+       const syncVentas = await this.notificarVentasPedidoFacturado(factura);
 
       return {
         ok: true,
         factura,
-        sync_ventas: { ok: false, skipped: true, reason: 'disabled' },
+        sync_ventas: syncVentas,
       };
     } catch (e) {
       try {
