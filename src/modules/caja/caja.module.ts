@@ -7,11 +7,17 @@ import { CajaCierre } from './entities/caja-cierre.entity';
 import { CajaService } from './caja.service';
 import { CajaController } from './caja.controller';
 import { Sucursal } from '../sucursales/sucursal.entity';
+import { CajaMovimientoDetalle } from './entities/caja-movimiento-detalle.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([CajaApertura, CajaMovimiento, CajaCierre,Sucursal]),
-    
+    TypeOrmModule.forFeature([
+      CajaApertura,
+      CajaMovimiento,
+      CajaCierre,
+      Sucursal,
+      CajaMovimientoDetalle,
+    ]),
   ],
   controllers: [CajaController],
   providers: [CajaService],
