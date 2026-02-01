@@ -425,6 +425,7 @@ export class EstadoCuentaService {
       },
       saldo_inicial: Number(saldoInicial.toFixed(4)),
       movimientos: rows.map((r: any) => ({
+        cuenta: String(r.cuenta ?? '').toUpperCase(), // 👈 NUEVO (CUENTA1 / CUENTA2)
         fecha: r.fecha,
         tipo: r.tipo,
         origen_id: r.origen_id,
@@ -432,9 +433,8 @@ export class EstadoCuentaService {
         observacion: r.observacion,
         importe: Number(Number(r.importe_signed).toFixed(4)),
         saldo_corrido: Number(Number(r.saldo_corrido).toFixed(4)),
-        // 👇 si te sirve, podés devolverla (no rompe nada si el front ignora)
-        // cuenta: r.cuenta,
       })),
+
       totales_periodo: {
         total_cargos: Number(tot?.total_cargos || 0),
         total_nd: Number(tot?.total_nd || 0),
