@@ -321,8 +321,8 @@ export class FacturasService {
         ],
       );
 
-      const factura = upd?.[0];
-      if (!factura) {
+      const facturaRow = upd?.[0];
+      if (!facturaRow) {
         this.logger.error(
           `UPDATE fac_facturas RETURNING vacío. fac_id=${facId}`,
         );
@@ -337,30 +337,16 @@ export class FacturasService {
         };
       }
 
-      const facturaRow = upd?.[0];
-      if (!facturaRow) {
-        this.logger.error(
-          `UPDATE fac_facturas no devolvió fila. fac_id=${fac?.id}`,
-        );
-        return {
-          ok: true,
-          factura: null,
-          sync_ventas: {
-            ok: false,
-            skipped: true,
-            reason: 'missing_factura_row',
-          },
-        };
-      }
-
       const syncVentas = await this.notificarVentasPedidoFacturado(facturaRow);
 
-      return { ok: true, factura: facturaRow, sync_ventas: syncVentas };
+      
 
+
+      
 
       return {
         ok: true,
-        factura,
+        factura: facturaRow,
         sync_ventas: syncVentas,
       };
     } catch (e) {
@@ -467,11 +453,9 @@ export class FacturasService {
   }
 
   private async notificarVentasPedidoFacturado(facturaInput: any) {
-    // 0) Feature flag
     const enabled = this.parseBool(process.env.VENTAS_SYNC_ENABLED, false);
     if (!enabled) return { ok: false, skipped: true, reason: 'disabled' };
 
-    // 1) ENV obligatorios
     const base = String(process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
     const key = String(process.env.VENTAS_API_KEY ?? '').trim();
 
@@ -480,10 +464,16 @@ export class FacturasService {
       return { ok: false, skipped: true, reason: 'missing_env' };
     }
 
-    // 2) Unwrap: a veces te llega { factura: ..., items: ... }
-    const factura = facturaInput?.factura ?? facturaInput;
+    // ✅ Normalizar input:
+    // - si viene array -> tomo el primer elemento
+    // - si viene wrapper {factura, items} -> tomo .factura
+    // - si viene objeto -> lo uso
+    let factura: any = facturaInput;
 
-    // 3) Validar referencia_interna
+    if (Array.isArray(factura)) factura = factura[0];
+    if (factura && typeof factura === 'object' && 'factura' in factura)
+      factura = (factura as any).factura;
+
     const referencia_interna = String(
       factura?.referencia_interna ?? factura?.referenciaInterna ?? '',
     ).trim();
@@ -491,12 +481,13 @@ export class FacturasService {
     if (!referencia_interna) {
       const keys = facturaInput ? Object.keys(facturaInput) : [];
       this.logger.warn(
-        `SYNC Ventas cancelado: referencia_interna vacío. factura_id=${factura?.id} input_keys=${JSON.stringify(keys)}`,
+        `SYNC Ventas cancelado: referencia_interna vacío. factura_id=${factura?.id} input_isArray=${Array.isArray(
+          facturaInput,
+        )} input_keys=${JSON.stringify(keys)}`,
       );
       return { ok: false, skipped: true, reason: 'missing_referencia_interna' };
     }
 
-    // 4) Payload
     const payload = {
       referencia_interna,
       factura_admin_id: factura?.id != null ? String(factura.id) : null,
