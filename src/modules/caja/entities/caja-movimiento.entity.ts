@@ -1,14 +1,18 @@
 // src/caja/entities/caja-movimiento.entity.ts
-import { Entity, Column, PrimaryGeneratedColumn, ManyToOne } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, OneToMany } from 'typeorm';
 import { CajaApertura } from './caja-apertura.entity';
 import { TipoMovimiento } from '../enums/tipo-movimiento.enum';
 import { MetodoPago } from '../enums/metodo-pago.enum';
 import { TarjetaTipo } from '../enums/tarjeta-tipo.enum';
+import { CajaMovimientoDetalle } from './caja-movimiento-detalle.entity';
 
 @Entity('caja_movimiento')
 export class CajaMovimiento {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @Column({ type: 'uuid' })
+  aperturaId: string;
 
   @ManyToOne(() => CajaApertura, (a) => a.movimientos, { eager: false })
   apertura: CajaApertura;
@@ -19,13 +23,15 @@ export class CajaMovimiento {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   monto: number;
 
-  
+  // total del movimiento (suma de detalles). Guardado por performance/auditoría.
+  @Column({ type: 'numeric', precision: 12, scale: 2 })
+  montoTotal: number;
 
   @Column({ type: 'enum', enum: TipoMovimiento })
   tipo: TipoMovimiento;
 
   @Column({ type: 'varchar', nullable: true })
-  referencia: string;
+  referencia?: string | null;
 
   @Column()
   usuario: string;
@@ -44,4 +50,10 @@ export class CajaMovimiento {
 
   @Column({ nullable: true })
   nombreEntidad?: string; // banco o billetera, ej:"MercadoPago"
+
+  @OneToMany(() => CajaMovimientoDetalle, (d) => d.movimiento, {
+    cascade: true,
+    eager: false,
+  })
+  detalles: CajaMovimientoDetalle[];
 }
