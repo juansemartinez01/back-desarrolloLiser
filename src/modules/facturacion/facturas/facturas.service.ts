@@ -315,13 +315,8 @@ export class FacturasService {
         ],
       );
 
-      
-
       const factura = upd[0];
 
-      
-
-      
       const syncVentas = await this.notificarVentasPedidoFacturado(upd[0]);
 
       return {
@@ -329,7 +324,6 @@ export class FacturasService {
         factura: upd[0],
         sync_ventas: syncVentas, // 👈 te queda trazabilidad de si se marcó o no
       };
-
     } catch (e) {
       try {
         await qr.rollbackTransaction();
@@ -427,33 +421,43 @@ export class FacturasService {
   }
 
   private async notificarVentasPedidoFacturado(factura: any) {
-    const base = process.env.VENTAS_API_BASE;
-    const key = process.env.VENTAS_API_KEY;
+    const base = (process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
+    const key = process.env.VENTAS_API_KEY ?? '';
 
     if (!base || !key) {
-      this.logger.warn(
-        'VENTAS_API_BASE/VENTAS_API_KEY no configurados. No se notificará a Ventas.',
-      );
+      this.logger.warn('VENTAS_API_BASE/VENTAS_API_KEY no configurados.');
       return { ok: false, skipped: true, reason: 'missing_env' };
     }
 
+    const referencia_interna = String(factura?.referencia_interna ?? '').trim();
+    if (!referencia_interna) {
+      this.logger.error(
+        `SYNC Ventas cancelado: factura.referencia_interna vacío. factura_id=${factura?.id}`,
+      );
+      return { ok: false, skipped: true, reason: 'missing_referencia_interna' };
+    }
+
     const payload = {
-      referencia_interna: factura.referencia_interna,
-      factura_admin_id: factura.id,
-      cae: factura.cae,
-      nro_comprobante: factura.nro_comprobante,
-      punto_venta: factura.punto_venta,
-      factura_tipo: factura.factura_tipo,
+      referencia_interna,
+      factura_admin_id: String(factura.id),
+      cae: factura.cae ?? null,
+      nro_comprobante: factura.nro_comprobante ?? null,
+      punto_venta: factura.punto_venta ?? null,
+      factura_tipo: factura.factura_tipo ?? null,
       facturado: true,
     };
 
+    const url = `${base}/pedidos/marcar-facturado`;
+
+    this.logger.log(
+      `SYNC Ventas POST ${url} payload=${JSON.stringify(payload)}`,
+    );
+
     try {
-      const apiKey = process.env.VENTAS_API_KEY ?? '';
-      const url = `${base.replace(/\/$/, '')}/pedidos/marcar-facturado`;
       const r = await axios.post(url, payload, {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'content-type': 'application/json',
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
         },
         timeout: 8000,
       });
@@ -461,8 +465,10 @@ export class FacturasService {
     } catch (e: any) {
       const msg =
         e?.response?.data?.message ??
+        e?.response?.data ??
         e?.message ??
         'Error notificando a Ventas';
+
       this.logger.error(
         `No se pudo marcar pedido como facturado en Ventas: ${msg}`,
       );
