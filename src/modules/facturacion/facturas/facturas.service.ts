@@ -61,14 +61,16 @@ export class FacturasService {
     if (!emi) throw new BadRequestException('Emisor inexistente');
     if (!emi.activo) throw new BadRequestException('Emisor inactivo');
 
-    // 2) Idempotencia: ya existe emitida?
+    // 2) Idempotencia: si ya existe ACEPTADA, devolvemos y LISTO (sin sync)
     if (dto.referencia_interna) {
       const dup = await this.ds.query(
-        `SELECT id, estado FROM public.fac_facturas
+        `SELECT id, estado
+       FROM public.fac_facturas
        WHERE emisor_id = $1 AND referencia_interna = $2
          AND factura_tipo = COALESCE($3, factura_tipo)
          AND punto_venta = COALESCE($4, punto_venta)
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY created_at DESC
+       LIMIT 1`,
         [
           dto.emisor_id,
           dto.referencia_interna,
@@ -76,8 +78,15 @@ export class FacturasService {
           dto.punto_venta ?? null,
         ],
       );
+
       if (dup?.length && dup[0].estado === 'ACEPTADA') {
-        return this.detalle(dup[0].id);
+        const det = await this.detalle(dup[0].id); // { factura, items }
+        return {
+          ok: true,
+          factura: det.factura,
+          items: det.items,
+          sync_ventas: { ok: false, skipped: true, reason: 'already_accepted' },
+        };
       }
     }
 
@@ -85,14 +94,13 @@ export class FacturasService {
     const ids = dto.lista_productos.map((x) => x.ProductoId);
     const productos = await this.ds.query(
       `SELECT id, nombre, alicuota_iva, exento_iva, facturable, activo
-   FROM public.stk_productos
-   WHERE id = ANY($1::int[])`,
+     FROM public.stk_productos
+     WHERE id = ANY($1::int[])`,
       [ids],
     );
 
     const byId = new Map<number, any>(productos.map((p) => [Number(p.id), p]));
 
-    // validar que existan todos
     for (const id of ids) {
       const p = byId.get(id);
       if (!p) throw new BadRequestException(`Producto inexistente: ${id}`);
@@ -105,17 +113,15 @@ export class FacturasService {
       const p = byId.get(x.ProductoId);
 
       const exento = !!p.exento_iva;
-      const pct = Number(p.alicuota_iva); // viene numeric string
+      const pct = Number(p.alicuota_iva);
       const afipCode = exento ? 3 : pctToAfipCode(pct);
 
       return {
-        // datos para persistir / mostrar
         ProductoId: x.ProductoId,
         Producto: p.nombre,
-        // lo que usa el cálculo
         AlicuotaIVA: afipCode,
         Exento: exento,
-        Consignacion: true, // si lo manejás por producto, lo sacás también de stk_productos
+        Consignacion: true,
         Cantidad: x.Cantidad,
         Precio_Unitario_Total: x.Precio_Unitario_Total,
         Precio_Unitario_Neto: x.Precio_Unitario_Neto,
@@ -123,16 +129,14 @@ export class FacturasService {
       };
     });
 
-    // 3) Normalizar items + sumar
     const norm = itemsEnriquecidos.map(normalizeItem);
     const sums = resumir(norm);
 
-    // --- Cálculo de importes coherente con AFIP -------------------------------
-    const facturaTipo = dto.factura_tipo ?? 11; // 11 = C por defecto
+    const facturaTipo = dto.factura_tipo ?? 11;
 
-    const total = sums.total; // total con IVA
-    const netoBase = sums.total_neto; // neto calculado
-    const ivaBase = sums.total_iva; // IVA calculado
+    const total = sums.total;
+    const netoBase = sums.total_neto;
+    const ivaBase = sums.total_iva;
 
     const importeNoGravadoBase = dto.importe_no_gravado ?? 0;
     const importeExentoBase = dto.importe_exento ?? 0;
@@ -145,7 +149,6 @@ export class FacturasService {
     let importeExento = importeExentoBase;
     let importeTributos = importeTribBase;
 
-    // Para FACTURA C (11): ImpTotal = ImpNeto + ImpTrib, IVA = 0
     if (facturaTipo === 11) {
       importeIva = 0;
       importeNeto = importeTotal - importeTributos;
@@ -156,16 +159,18 @@ export class FacturasService {
     await qr.connect();
     await qr.startTransaction();
 
+    let facId: string | null = null;
+
     try {
       const [fac] = await qr.query(
         `INSERT INTO public.fac_facturas
-         (emisor_id, referencia_interna,
-          razon_social_receptor, doc_tipo, doc_nro, cond_iva_receptor,
-          factura_tipo, punto_venta, concepto, moneda, cotizacion,
-          importe_total, importe_neto, importe_iva,
-          importe_no_gravado, importe_exento, importe_tributos,
-          tipo_comprobante_original, pto_venta_original, nro_comprobante_original, cuit_receptor_comprobante_original,
-          estado)
+       (emisor_id, referencia_interna,
+        razon_social_receptor, doc_tipo, doc_nro, cond_iva_receptor,
+        factura_tipo, punto_venta, concepto, moneda, cotizacion,
+        importe_total, importe_neto, importe_iva,
+        importe_no_gravado, importe_exento, importe_tributos,
+        tipo_comprobante_original, pto_venta_original, nro_comprobante_original, cuit_receptor_comprobante_original,
+        estado)
        VALUES ($1,$2,$3,COALESCE($4,99),COALESCE($5,0),COALESCE($6,5),
                COALESCE($7,11),COALESCE($8,1),COALESCE($9,1),
                COALESCE($10,'PES'),COALESCE($11,1),
@@ -199,18 +204,20 @@ export class FacturasService {
         ],
       );
 
+      facId = fac?.id ?? null;
+
       for (const it of norm) {
         await qr.query(
           `INSERT INTO public.fac_facturas_items
-          (factura_id, producto_id, codigo, producto, alicuota_iva, exento, consignacion,
-            cantidad, precio_unitario_total, precio_unitario_neto, iva_unitario,
-            total_neto, total_iva, total_con_iva)
-          VALUES ($1,$2,$3,$4,$5,COALESCE($6,false),COALESCE($7,true),
-                  $8,$9,$10,$11,$12,$13,$14)`,
+         (factura_id, producto_id, codigo, producto, alicuota_iva, exento, consignacion,
+          cantidad, precio_unitario_total, precio_unitario_neto, iva_unitario,
+          total_neto, total_iva, total_con_iva)
+         VALUES ($1,$2,$3,$4,$5,COALESCE($6,false),COALESCE($7,true),
+                $8,$9,$10,$11,$12,$13,$14)`,
           [
             fac.id,
             (it as any).ProductoId ?? null,
-            null, // si querés, podés mapear a algún “codigo” interno
+            null,
             (it as any).Producto ?? null,
             it.AlicuotaIVA,
             it.Exento ?? false,
@@ -273,7 +280,7 @@ export class FacturasService {
         codigo_operacion_exento: dto.codigo_operacion_exento ?? ' ',
       };
 
-      // 6) Call externo + persistir respuesta/errores
+      // 6) Call externo
       let respuesta: any;
       try {
         respuesta = await this.ext.postFacturas(payload, {
@@ -283,24 +290,23 @@ export class FacturasService {
         const msg = e?.message || 'Error llamando /facturas';
         await this.ds.query(
           `UPDATE public.fac_facturas SET estado='ERROR', error_msj=$1, updated_at=now() WHERE id=$2`,
-          [msg, fac.id],
+          [msg, facId],
         );
         throw new BadRequestException(msg);
       }
 
       // 7) Persistir salida AFIP
-      // 7) Persistir salida AFIP
       const upd = await this.ds.query(
         `UPDATE public.fac_facturas
-         SET estado='ACEPTADA',
-             cae = $1,
-             cae_vencimiento = $2,
-             fecha_emision = $3,
-             qr_url = $4,
-             nro_comprobante = $5,
-             txt_venta = $6,
-             txt_alicuotas_venta = $7,
-             updated_at=now()
+       SET estado='ACEPTADA',
+           cae = $1,
+           cae_vencimiento = $2,
+           fecha_emision = $3,
+           qr_url = $4,
+           nro_comprobante = $5,
+           txt_venta = $6,
+           txt_alicuotas_venta = $7,
+           updated_at=now()
        WHERE id = $8
        RETURNING *`,
         [
@@ -311,18 +317,34 @@ export class FacturasService {
           respuesta.nro_comprobante ?? null,
           respuesta.txt_venta ?? null,
           respuesta.txt_alicuotas_venta ?? null,
-          fac.id,
+          facId,
         ],
       );
 
-      const factura = upd[0];
+      const factura = upd?.[0];
+      if (!factura) {
+        this.logger.error(
+          `UPDATE fac_facturas RETURNING vacío. fac_id=${facId}`,
+        );
+        return {
+          ok: true,
+          factura_id: facId,
+          sync_ventas: {
+            ok: false,
+            skipped: true,
+            reason: 'missing_updated_row',
+          },
+        };
+      }
 
-      const syncVentas = await this.notificarVentasPedidoFacturado(upd[0]);
+      // ✅ Por ahora: NO sync acá (vos dijiste endpoint aparte)
+      // Si querés habilitarlo después, descomentás:
+      // const syncVentas = await this.notificarVentasPedidoFacturado(factura);
 
       return {
         ok: true,
-        factura: upd[0],
-        sync_ventas: syncVentas, // 👈 te queda trazabilidad de si se marcó o no
+        factura,
+        sync_ventas: { ok: false, skipped: true, reason: 'disabled' },
       };
     } catch (e) {
       try {
