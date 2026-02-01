@@ -337,9 +337,26 @@ export class FacturasService {
         };
       }
 
-      // ✅ Por ahora: NO sync acá (vos dijiste endpoint aparte)
-      // Si querés habilitarlo después, descomentás:
-       const syncVentas = await this.notificarVentasPedidoFacturado(factura);
+      const facturaRow = upd?.[0];
+      if (!facturaRow) {
+        this.logger.error(
+          `UPDATE fac_facturas no devolvió fila. fac_id=${fac?.id}`,
+        );
+        return {
+          ok: true,
+          factura: null,
+          sync_ventas: {
+            ok: false,
+            skipped: true,
+            reason: 'missing_factura_row',
+          },
+        };
+      }
+
+      const syncVentas = await this.notificarVentasPedidoFacturado(facturaRow);
+
+      return { ok: true, factura: facturaRow, sync_ventas: syncVentas };
+
 
       return {
         ok: true,
@@ -442,38 +459,55 @@ export class FacturasService {
     }
   }
 
-  private async notificarVentasPedidoFacturado(factura: any) {
-    const base = (process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
-    const key = process.env.VENTAS_API_KEY ?? '';
+  private parseBool(v: any, def = false): boolean {
+    if (v === true || v === false) return v;
+    if (v === null || v === undefined) return def;
+    const s = String(v).trim().toLowerCase();
+    return ['1', 'true', 'yes', 'si', 'on'].includes(s);
+  }
+
+  private async notificarVentasPedidoFacturado(facturaInput: any) {
+    // 0) Feature flag
+    const enabled = this.parseBool(process.env.VENTAS_SYNC_ENABLED, false);
+    if (!enabled) return { ok: false, skipped: true, reason: 'disabled' };
+
+    // 1) ENV obligatorios
+    const base = String(process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
+    const key = String(process.env.VENTAS_API_KEY ?? '').trim();
 
     if (!base || !key) {
       this.logger.warn('VENTAS_API_BASE/VENTAS_API_KEY no configurados.');
       return { ok: false, skipped: true, reason: 'missing_env' };
     }
 
-    const referencia_interna = String(factura?.referencia_interna ?? '').trim();
+    // 2) Unwrap: a veces te llega { factura: ..., items: ... }
+    const factura = facturaInput?.factura ?? facturaInput;
+
+    // 3) Validar referencia_interna
+    const referencia_interna = String(
+      factura?.referencia_interna ?? factura?.referenciaInterna ?? '',
+    ).trim();
+
     if (!referencia_interna) {
-      this.logger.error(
-        `SYNC Ventas cancelado: factura.referencia_interna vacío. factura_id=${factura?.id}`,
+      const keys = facturaInput ? Object.keys(facturaInput) : [];
+      this.logger.warn(
+        `SYNC Ventas cancelado: referencia_interna vacío. factura_id=${factura?.id} input_keys=${JSON.stringify(keys)}`,
       );
       return { ok: false, skipped: true, reason: 'missing_referencia_interna' };
     }
 
+    // 4) Payload
     const payload = {
       referencia_interna,
-      factura_admin_id: String(factura.id),
-      cae: factura.cae ?? null,
-      nro_comprobante: factura.nro_comprobante ?? null,
-      punto_venta: factura.punto_venta ?? null,
-      factura_tipo: factura.factura_tipo ?? null,
+      factura_admin_id: factura?.id != null ? String(factura.id) : null,
+      cae: factura?.cae ?? null,
+      nro_comprobante: factura?.nro_comprobante ?? null,
+      punto_venta: factura?.punto_venta ?? null,
+      factura_tipo: factura?.factura_tipo ?? null,
       facturado: true,
     };
 
     const url = `${base}/pedidos/marcar-facturado`;
-
-    this.logger.log(
-      `SYNC Ventas POST ${url} payload=${JSON.stringify(payload)}`,
-    );
 
     try {
       const r = await axios.post(url, payload, {
