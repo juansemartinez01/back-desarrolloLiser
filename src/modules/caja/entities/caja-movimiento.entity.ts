@@ -38,8 +38,8 @@ export class CajaMovimiento {
   @Column({ type: 'varchar' })
   tipo: TipoMovimiento;
 
-  @Column({ nullable: true })
-  referencia: string | null;
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  referencia?: string | null;
 
   @Column()
   usuario: string;
