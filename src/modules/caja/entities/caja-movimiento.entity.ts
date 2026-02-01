@@ -30,7 +30,10 @@ export class CajaMovimiento {
   // ⚠️ si este campo existe en DB y es NOT NULL, hoy NO lo estás seteando.
   // Solución: hacerlo nullable (mínimo) o setearlo en service.
   @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
-  monto: number | null;
+  monto?: number | null;
+
+  @Column({ type: 'enum', enum: MetodoPago, nullable: true })
+  metodoPago?: MetodoPago | null;
 
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   montoTotal: number;
@@ -47,19 +50,18 @@ export class CajaMovimiento {
   // ⚠️ este campo era del modelo viejo (un solo método).
   // Si sigue existiendo en DB y es NOT NULL, te rompe.
   // Solución: nullable + lo dejamos como “resumen” opcional.
-  @Column({ type: 'varchar', nullable: true, name: 'metodo_pago' })
-  metodoPago: MetodoPago | null;
+  // CajaMovimiento
 
-  @Column({ type: 'varchar', nullable: true, name: 'tarjeta_tipo' })
+  @Column({ type: 'enum', enum: TarjetaTipo, nullable: true })
   tarjetaTipo?: TarjetaTipo | null;
 
-  @Column({ nullable: true, name: 'tarjeta_ultimos4' })
+  @Column({ type: 'varchar', length: 4, nullable: true })
   tarjetaUltimos4?: string | null;
 
-  @Column({ nullable: true, name: 'codigo_autorizacion' })
+  @Column({ type: 'varchar', length: 80, nullable: true })
   codigoAutorizacion?: string | null;
 
-  @Column({ nullable: true, name: 'nombre_entidad' })
+  @Column({ type: 'varchar', length: 80, nullable: true })
   nombreEntidad?: string | null;
 
   @OneToMany(() => CajaMovimientoDetalle, (d) => d.movimiento, {

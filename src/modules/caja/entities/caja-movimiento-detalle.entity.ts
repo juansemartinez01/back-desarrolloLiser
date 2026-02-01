@@ -36,12 +36,14 @@ export class CajaMovimientoDetalle {
   @Column({ type: 'varchar', nullable: true, name: 'tarjeta_tipo' })
   tarjetaTipo?: TarjetaTipo;
 
-  @Column({ nullable: true, name: 'tarjeta_ultimos4' })
-  tarjetaUltimos4?: string;
+  // CajaMovimientoDetalle
 
-  @Column({ nullable: true, name: 'codigo_autorizacion' })
-  codigoAutorizacion?: string;
+  @Column({ type: 'varchar', length: 4, nullable: true })
+  tarjetaUltimos4?: string | null;
 
-  @Column({ nullable: true, name: 'nombre_entidad' })
-  nombreEntidad?: string;
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  codigoAutorizacion?: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  nombreEntidad?: string | null;
 }
