@@ -11,6 +11,8 @@ import { PagosService } from './pagos.service';
 import { PagosController } from './pagos.controller';
 import { ReportesFinService } from './reportes.service';
 import { ReportesFinController } from './reportes.controller';
+import { ProveedoresService } from './proveedores.service';
+import { ProveedoresController } from './proveedores.controller';
 
 @Module({
   imports: [
@@ -22,8 +24,23 @@ import { ReportesFinController } from './reportes.controller';
       PagoAplic,
     ]),
   ],
-  providers: [LiquidacionesService,PagosService,ReportesFinService],
-  controllers: [LiquidacionesController,PagosController,ReportesFinController],
-  exports: [LiquidacionesService,PagosService],
+  providers: [
+    LiquidacionesService,
+    PagosService,
+    ReportesFinService,
+    ProveedoresService,
+  ],
+  controllers: [
+    LiquidacionesController,
+    PagosController,
+    ReportesFinController,
+    ProveedoresController,
+  ],
+  exports: [
+    LiquidacionesService,
+    PagosService,
+    ProveedoresService,
+    ReportesFinService,
+  ],
 })
 export class FinModule {}
