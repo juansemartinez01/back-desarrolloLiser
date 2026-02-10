@@ -11,6 +11,9 @@ import { AplicarPagoDto, CrearPagoDto, QueryPagosDto } from './dto/pagos.dto';
 
 const to4 = (n: number | string) => Number(n).toFixed(4);
 
+
+
+
 @Injectable()
 export class PagosService {
   constructor(

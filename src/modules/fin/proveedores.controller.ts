@@ -54,7 +54,7 @@ export class ProveedoresController {
 
   // Import masivo (para que el front te mande el array ya parseado del CSV/Excel)
   @Post('import')
-  importMany(@Body() dto: ImportProveedoresDto) {
+  importMany(@Body() dto: { proveedores: any[] }) {
     return this.service.importMany(dto.proveedores);
   }
 }
