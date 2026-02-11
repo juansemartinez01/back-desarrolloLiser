@@ -35,6 +35,16 @@ function cleanStr(v: any): string | null {
   return s;
 }
 
+function capLen(s: string | null, max: number): string | null {
+  if (!s) return null;
+  return s.length <= max ? s : s.slice(0, max);
+}
+
+function cleanAndCap(v: any, max: number): string | null {
+  return capLen(cleanStr(v), max);
+}
+
+
 function getRaw(obj: any, ...keys: string[]): any {
   for (const k of keys) {
     if (obj && Object.prototype.hasOwnProperty.call(obj, k)) return obj[k];
@@ -123,19 +133,34 @@ function normalizeInputRow(r: any): CreateProveedorDto | null {
     nombre = alt;
   }
 
+    nombre = capLen(nombre, 200)!;
+
   const cuitCandidate = getRaw(r, 'cuit', 'CUIT');
   const cuit = normalizeCuit(cuitCandidate);
 
-  const domicilio = cleanStr(getRaw(r, 'domicilio', 'DOMICILIO'));
-  const localidad = cleanStr(getRaw(r, 'localidad', 'LOCALIDAD'));
-  const cond_iva = cleanStr(getRaw(r, 'cond_iva', 'COND. IVA', 'COND_IVA'));
-  const tipo = cleanStr(getRaw(r, 'tipo', 'TIPO'));
-  const telefonos = normalizeTelefonos(getRaw(r, 'telefonos', 'TELEFONOS'));
-  const email = normalizeEmail(getRaw(r, 'email', 'EMAIL'));
-  const categoria = cleanStr(getRaw(r, 'categoria', 'CATEGORIA'));
-  const estado = cleanStr(getRaw(r, 'estado', 'ESTADO'));
+  // IMPORTANTE: cap de longitudes según la entidad/DB para no romper inserts
+  const domicilio = cleanAndCap(getRaw(r, 'domicilio', 'DOMICILIO'), 200);
+  const localidad = cleanAndCap(getRaw(r, 'localidad', 'LOCALIDAD'), 120);
+  const cond_iva = cleanAndCap(
+    getRaw(r, 'cond_iva', 'COND. IVA', 'COND_IVA'),
+    50,
+  );
+
+  // ✅ tipo ahora lo dejamos más largo (coincide con DB varchar(100))
+  const tipo = cleanAndCap(getRaw(r, 'tipo', 'TIPO'), 100);
+
+  const telefonos = capLen(
+    normalizeTelefonos(getRaw(r, 'telefonos', 'TELEFONOS')),
+    200,
+  );
+
+  const email = capLen(normalizeEmail(getRaw(r, 'email', 'EMAIL')), 150);
+
+  const categoria = cleanAndCap(getRaw(r, 'categoria', 'CATEGORIA'), 50);
+  const estado = cleanAndCap(getRaw(r, 'estado', 'ESTADO'), 50);
+
   const external_ref =
-    cleanStr(getRaw(r, 'external_ref', 'EXTERNAL_REF')) ?? null;
+    cleanAndCap(getRaw(r, 'external_ref', 'EXTERNAL_REF'), 100) ?? null;
 
   // activo:
   // - si lo mandan explícito lo respeto, pero si detecto “no proveedor”, lo fuerzo a false
@@ -162,7 +187,7 @@ function normalizeInputRow(r: any): CreateProveedorDto | null {
   const dto: CreateProveedorDto = {
     ...(Number.isFinite(id) ? { id } : {}),
     nombre,
-    cuit: cuit ?? undefined,
+    cuit: capLen(cuit, 20) ?? undefined,
     activo,
     external_ref: external_ref ?? undefined,
     domicilio: domicilio ?? undefined,
@@ -334,12 +359,21 @@ export class ProveedoresService {
       }
 
       // 3) inserts sin id y sin cuit
-      const withoutKey = normalized.filter((r) => !r.id && !r.cuit);
-      if (withoutKey.length) {
-        const entities = repo.create(withoutKey as any);
-        await repo.save(entities);
-        inserted += withoutKey.length;
-      }
+            const withoutKey = normalized.filter((r) => !r.id && !r.cuit);
+            for (const r of withoutKey) {
+              const existing = await repo.findOne({
+                where: { nombre: r.nombre as any },
+              });
+              if (!existing) {
+                await repo.save(repo.create(r as any));
+                inserted++;
+              } else {
+                Object.assign(existing, r);
+                await repo.save(existing);
+                updated++;
+              }
+            }
+
     });
 
     return { inserted, updated, total: normalized.length, skipped };

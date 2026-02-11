@@ -31,7 +31,7 @@ export class Proveedor extends BaseAuditEntity {
   @Column({ type: 'varchar', length: 50, nullable: true })
   cond_iva?: string | null;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
+  @Column({ type: 'varchar', length: 100, nullable: true })
   tipo?: string | null;
 
   @Column({ type: 'varchar', length: 200, nullable: true })
