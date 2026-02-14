@@ -49,6 +49,14 @@ export class OutboxSenderService {
           );
         }
 
+        if (ev.event_type === 'TIPO_PRODUCTO_UPSERT_VENTAS') {
+          await axios.post(
+            `${process.env.VENTAS_API_BASE}/integraciones/tipos-producto/upsert`,
+            ev.payload,
+            { headers: { 'x-api-key': process.env.VENTAS_API_KEY } },
+          );
+        }
+
 
         await this.ds.query(
           `UPDATE public.outbox_events

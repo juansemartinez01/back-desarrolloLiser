@@ -11,6 +11,7 @@ import {
   UpdateTipoProductoDto,
   QueryTipoProductoDto,
 } from './dto/tipo-producto.dto';
+import { OutboxEvent } from '../outbox/outbox-event.entity';
 
 @Injectable()
 export class TiposProductoService {
@@ -61,7 +62,23 @@ export class TiposProductoService {
       descripcion: dto.descripcion ?? null,
       activo: dto.activo ?? true,
     });
-    return repo.save(t);
+    
+
+    const created = await repo.save(t);
+
+    await this.ds.getRepository(OutboxEvent).save({
+      aggregate_type: 'TipoProducto',
+      aggregate_id: String(created.id),
+      event_type: 'TIPO_PRODUCTO_UPSERT_VENTAS',
+      payload: {
+        id: created.id,
+        nombre: created.nombre,
+        activo: created.activo,
+      },
+    });
+
+    return created;
+
   }
 
   async actualizar(id: number, dto: UpdateTipoProductoDto) {
@@ -83,7 +100,21 @@ export class TiposProductoService {
     if (dto.activo !== undefined) t.activo = dto.activo;
 
     t.updated_at = new Date();
-    return repo.save(t);
+    const updated = await repo.save(t);
+
+    await this.ds.getRepository(OutboxEvent).save({
+      aggregate_type: 'TipoProducto',
+      aggregate_id: String(updated.id),
+      event_type: 'TIPO_PRODUCTO_UPSERT_VENTAS',
+      payload: {
+        id: updated.id,
+        nombre: updated.nombre,
+        activo: updated.activo,
+      },
+    });
+
+    return updated;
+
   }
 
   async borrar(id: number) {
@@ -94,6 +125,18 @@ export class TiposProductoService {
     t.activo = false;
     t.updated_at = new Date();
     await repo.save(t);
+
+    await this.ds.getRepository(OutboxEvent).save({
+      aggregate_type: 'TipoProducto',
+      aggregate_id: String(t.id),
+      event_type: 'TIPO_PRODUCTO_UPSERT_VENTAS',
+      payload: {
+        id: t.id,
+        nombre: t.nombre,
+        activo: false,
+      },
+    });
+
     return { ok: true };
   }
 }
