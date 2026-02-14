@@ -11,6 +11,7 @@ import {
   UpdateUnidadDto,
   QueryUnidadDto,
 } from './dto/unidad.dto';
+import { OutboxEvent } from '../outbox/outbox-event.entity';
 
 @Injectable()
 export class UnidadesService {
@@ -49,9 +50,8 @@ export class UnidadesService {
     const repo = this.ds.getRepository(Unidad);
 
     const existe = await repo.findOne({ where: { codigo: dto.codigo } });
-    if (existe) {
+    if (existe)
       throw new BadRequestException('Ya existe una unidad con ese código');
-    }
 
     const u = repo.create({
       codigo: dto.codigo,
@@ -59,7 +59,23 @@ export class UnidadesService {
       abreviatura: dto.abreviatura ?? null,
       activo: dto.activo ?? true,
     });
-    return repo.save(u);
+
+    // ... dentro de crear:
+    const creada = await repo.save(u);
+
+    await this.ds.getRepository(OutboxEvent).save({
+      aggregate_type: 'Unidad',
+      aggregate_id: String(creada.id),
+      event_type: 'UNIDAD_UPSERT_VENTAS',
+      payload: {
+        id: creada.id,
+        nombre: creada.nombre ?? creada.codigo,
+        abreviatura: creada.abreviatura ?? null,
+        activo: creada.activo,
+      },
+    });
+
+    return creada;
   }
 
   async actualizar(id: number, dto: UpdateUnidadDto) {
@@ -67,11 +83,17 @@ export class UnidadesService {
     const u = await repo.findOne({ where: { id } });
     if (!u) throw new NotFoundException('Unidad no encontrada');
 
+    const before = {
+      codigo: u.codigo,
+      nombre: u.nombre,
+      abreviatura: u.abreviatura,
+      activo: u.activo,
+    };
+
     if (dto.codigo && dto.codigo !== u.codigo) {
       const existe = await repo.findOne({ where: { codigo: dto.codigo } });
-      if (existe) {
+      if (existe)
         throw new BadRequestException('Ya existe una unidad con ese código');
-      }
       u.codigo = dto.codigo;
     }
 
@@ -80,7 +102,33 @@ export class UnidadesService {
     if (dto.activo !== undefined) u.activo = dto.activo;
 
     u.updated_at = new Date();
-    return repo.save(u);
+    const updated = await repo.save(u);
+
+    const after = {
+      codigo: updated.codigo,
+      nombre: updated.nombre,
+      abreviatura: updated.abreviatura,
+      activo: updated.activo,
+    };
+
+    const changed = JSON.stringify(before) !== JSON.stringify(after);
+
+    if (changed) {
+      await this.ds.getRepository(OutboxEvent).save({
+        aggregate_type: 'Unidad',
+        aggregate_id: String(updated.id),
+        event_type: 'UNIDAD_UPSERT_VENTAS',
+        payload: {
+          id: updated.id,
+          nombre: updated.nombre ?? updated.codigo,
+          abreviatura: updated.abreviatura ?? null,
+          activo: updated.activo,
+          codigo: updated.codigo,
+        },
+      });
+    }
+
+    return updated;
   }
 
   async borrar(id: number) {
@@ -90,7 +138,21 @@ export class UnidadesService {
 
     u.activo = false;
     u.updated_at = new Date();
-    await repo.save(u);
+    const updated = await repo.save(u);
+
+    await this.ds.getRepository(OutboxEvent).save({
+      aggregate_type: 'Unidad',
+      aggregate_id: String(updated.id),
+      event_type: 'UNIDAD_UPSERT_VENTAS',
+      payload: {
+        id: updated.id,
+        nombre: updated.nombre ?? updated.codigo,
+        abreviatura: updated.abreviatura ?? null,
+        activo: updated.activo, // false
+      },
+    });
+
     return { ok: true };
+
   }
 }
