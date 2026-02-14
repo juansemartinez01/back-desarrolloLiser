@@ -2,10 +2,8 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class QueryEstadoCuentaVaciosDto {
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  cliente_id: number;
+  @IsString()
+  cliente_id: string;
 
   @IsOptional()
   @Type(() => Number)
