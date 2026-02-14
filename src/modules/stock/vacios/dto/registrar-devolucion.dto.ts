@@ -9,10 +9,8 @@ import {
 } from 'class-validator';
 
 export class RegistrarDevolucionDto {
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  cliente_id: number;
+  @IsString()
+  cliente_id: string;
 
   @Type(() => Number)
   @IsInt()
