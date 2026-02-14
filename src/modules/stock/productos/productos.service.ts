@@ -234,47 +234,62 @@ try {
     return prod;
   }
 
-  async update(id: number, dto: UpdateProductoDto) {
-    const repo = this.ds.getRepository(Producto);
+
+
+async update(id: number, dto: UpdateProductoDto) {
+  return this.ds.transaction(async (manager) => {
+    const repo = manager.getRepository(Producto);
+    const outboxRepo = manager.getRepository(OutboxEvent);
+
     const prod = await repo.findOne({ where: { id } });
     if (!prod) throw new NotFoundException('Producto no encontrado');
 
+    // Snapshot para detectar cambios relevantes
+    const before = {
+      codigo_comercial: prod.codigo_comercial,
+      nombre: prod.nombre,
+      unidad_id: prod.unidad_id,
+      tipo_producto_id: prod.tipo_producto_id,
+      precio_base: Number(prod.precio_base ?? 0),
+      descripcion: prod.descripcion,
+      vacio: prod.vacio,
+      oferta: prod.oferta,
+      precio_oferta: Number(prod.precio_oferta ?? 0),
+      activo: prod.activo,
+      imagen: prod.imagen,
+      precio_vacio: Number(prod.precio_vacio ?? 0),
+      empresa: prod.empresa,
+      id_interno: prod.id_interno,
+    };
+
+    // -------------------------
+    // Aplicar cambios (como ya lo hacías)
+    // -------------------------
     if (dto.nombre !== undefined) prod.nombre = dto.nombre;
-    if (dto.precio_base !== undefined)
-      prod.precio_base = this.toDecimal4(dto.precio_base);
     if (dto.unidad_id !== undefined) prod.unidad_id = dto.unidad_id;
-    if (dto.tipo_producto_id !== undefined)
-      prod.tipo_producto_id = dto.tipo_producto_id;
+    if (dto.tipo_producto_id !== undefined) prod.tipo_producto_id = dto.tipo_producto_id;
     if (dto.descripcion !== undefined) prod.descripcion = dto.descripcion;
     if (dto.vacio !== undefined) prod.vacio = dto.vacio;
     if (dto.oferta !== undefined) prod.oferta = dto.oferta;
-    if (dto.precio_oferta !== undefined)
-      prod.precio_oferta = this.toDecimal4(dto.precio_oferta);
     if (dto.activo !== undefined) prod.activo = dto.activo;
     if (dto.imagen !== undefined) prod.imagen = dto.imagen;
-    if (dto.precio_vacio !== undefined)
-      prod.precio_vacio = this.toDecimal4(dto.precio_vacio);
     if (dto.id_interno !== undefined) prod.id_interno = dto.id_interno;
     if (dto.empresa !== undefined) prod.empresa = dto.empresa;
 
-    // formateos
-    if (dto.precio_base !== undefined)
-      prod.precio_base = this.toDecimal4(dto.precio_base);
+    // formateos (evitá repetir precio_base arriba y abajo)
+    if (dto.precio_base !== undefined) prod.precio_base = this.toDecimal4(dto.precio_base);
+    if (dto.precio_oferta !== undefined) prod.precio_oferta = this.toDecimal4(dto.precio_oferta);
+    if (dto.precio_vacio !== undefined) prod.precio_vacio = this.toDecimal4(dto.precio_vacio);
+    if (dto.precio_compra !== undefined) prod.precio_compra = this.toDecimal4(dto.precio_compra);
+    if (dto.precio_sin_iva !== undefined) prod.precio_sin_iva = this.toDecimal4(dto.precio_sin_iva);
+    if (dto.precio_con_iva !== undefined) prod.precio_con_iva = this.toDecimal4(dto.precio_con_iva);
 
-    if (dto.precio_oferta !== undefined)
-      prod.precio_oferta = this.toDecimal4(dto.precio_oferta);
-
-    if (dto.precio_vacio !== undefined)
-      prod.precio_vacio = this.toDecimal4(dto.precio_vacio);
-
-    if (dto.precio_compra !== undefined)
-      prod.precio_compra = this.toDecimal4(dto.precio_compra);
-
-    if (dto.precio_sin_iva !== undefined)
-      prod.precio_sin_iva = this.toDecimal4(dto.precio_sin_iva);
-
-    if (dto.precio_con_iva !== undefined)
-      prod.precio_con_iva = this.toDecimal4(dto.precio_con_iva);
+    // OJO: vos tenías huboCambioAdmin considerando campos que NO estás asignando acá:
+    // dto.alicuota_iva, dto.exento_iva, dto.selector_fiscal
+    // Si esos campos existen en UpdateProductoDto y querés permitir update, agregá asignaciones:
+    if ((dto as any).alicuota_iva !== undefined) (prod as any).alicuota_iva = (dto as any).alicuota_iva;
+    if ((dto as any).exento_iva !== undefined) (prod as any).exento_iva = (dto as any).exento_iva;
+    if ((dto as any).selector_fiscal !== undefined) (prod as any).selector_fiscal = (dto as any).selector_fiscal;
 
     prod.updated_at = new Date();
 
@@ -282,30 +297,75 @@ try {
       dto.precio_compra !== undefined ||
       dto.precio_sin_iva !== undefined ||
       dto.precio_con_iva !== undefined ||
-      dto.alicuota_iva !== undefined ||
-      dto.exento_iva !== undefined ||
-      dto.selector_fiscal !== undefined;
-    
-    
-    try {
-      
-      const actualizado = await repo.save(prod);
+      (dto as any).alicuota_iva !== undefined ||
+      (dto as any).exento_iva !== undefined ||
+      (dto as any).selector_fiscal !== undefined;
 
-      if (huboCambioAdmin) {
-        await this.registrarHistorial(
-          actualizado,
-          'MODIFICACIÓN ADMINISTRATIVA',
-          'system',
-        );
-      }
+    // Guardar producto
+    const actualizado = await repo.save(prod);
 
-      return actualizado;
-    } catch (e: any) {
-      throw new BadRequestException(
-        e?.detail || e?.message || 'Error actualizando producto',
+    // Snapshot after
+    const after = {
+      codigo_comercial: actualizado.codigo_comercial,
+      nombre: actualizado.nombre,
+      unidad_id: actualizado.unidad_id,
+      tipo_producto_id: actualizado.tipo_producto_id,
+      precio_base: Number(actualizado.precio_base ?? 0),
+      descripcion: actualizado.descripcion,
+      vacio: actualizado.vacio,
+      oferta: actualizado.oferta,
+      precio_oferta: Number(actualizado.precio_oferta ?? 0),
+      activo: actualizado.activo,
+      imagen: actualizado.imagen,
+      precio_vacio: Number(actualizado.precio_vacio ?? 0),
+      empresa: actualizado.empresa,
+      id_interno: actualizado.id_interno,
+    };
+
+    const changedForVentas =
+      JSON.stringify(before) !== JSON.stringify(after);
+
+    // Si cambió algo que impacta ventas, emitimos evento outbox
+    if (changedForVentas) {
+      await outboxRepo.save({
+        aggregate_type: 'Producto',
+        aggregate_id: String(actualizado.id),
+        event_type: 'PRODUCTO_UPSERT_VENTAS',
+        payload: {
+          codigo_comercial: actualizado.codigo_comercial,
+          nombre: actualizado.nombre,
+          unidadId: actualizado.unidad_id,
+          tipoProductoId: actualizado.tipo_producto_id,
+          precio_base: Number(actualizado.precio_base),
+          descripcion: actualizado.descripcion ?? null,
+          vacio: actualizado.vacio,
+          oferta: actualizado.oferta,
+          precio_oferta: Number(actualizado.precio_oferta ?? 0),
+          activo: actualizado.activo,
+          imagen: actualizado.imagen ?? null,
+          precioVacio: Number(actualizado.precio_vacio ?? 0),
+          empresa: actualizado.empresa ?? null,
+          id_interno: actualizado.id_interno ?? '',
+        },
+      });
+    }
+
+    // Historial admin (si corresponde)
+    if (huboCambioAdmin) {
+      // IMPORTANTE: registrarHistorial debe usar el mismo manager si escribe en DB
+      // Si registrarHistorial usa this.ds internamente, puede abrir otra tx.
+      // Ideal: crear una versión registrarHistorialTx(manager, ...) o pasar el manager.
+      await this.registrarHistorial(
+        actualizado,
+        'MODIFICACIÓN ADMINISTRATIVA',
+        'system',
       );
     }
-  }
+
+    return actualizado;
+  });
+}
+
 
   // "Baja" lógica: activo = false
   async remove(id: number) {
