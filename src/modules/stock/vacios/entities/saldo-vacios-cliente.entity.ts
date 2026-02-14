@@ -10,8 +10,8 @@ import { Envase } from './envase.entity';
 
 @Entity('saldo_vacios_cliente')
 export class SaldoVaciosCliente {
-  @PrimaryColumn({ type: 'int' })
-  cliente_id: number;
+  @PrimaryColumn({ type: 'uuid' })
+  cliente_id: string;
 
   @PrimaryColumn({ type: 'bigint' })
   envase_id: string;
