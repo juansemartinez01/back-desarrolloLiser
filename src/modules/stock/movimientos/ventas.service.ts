@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { ReservasService } from '../reservas/reservas.service';
 import { RegistrarVentaDto } from './dto/venta.dto';
 import { MovimientoStock } from './entities/movimiento-stock.entity';
@@ -20,28 +20,35 @@ export class VentasService {
     await qr.connect();
     await qr.startTransaction();
 
+    // ✅ fecha única del servidor (UTC)
+    const fechaServer = new Date();
+
     try {
-      // 1) Confirmar reservas
+      // 1) Confirmar reservas (idealmente en la misma tx; si este service usa su propio DS, esto no lo garantiza)
       await this.reservasService.confirmar({
         reservas_ids: dto.reservas_ids,
         pedido_id: dto.pedido_id,
       });
 
-      // 2) Ejecutar la venta real (tu método actual)
-      const venta = await this.registrarVenta({
-        lineas: dto.lineas,
-        fecha: dto.fecha,
-        almacen_origen_id: dto.almacen_origen_id,
-        observacion: dto.observacion,
-        referencia_id: dto.referencia_id,
-      });
+      // 2) Ejecutar la venta usando MISMA transacción y fecha del servidor
+      const venta = await this.registrarVenta(
+        {
+          lineas: dto.lineas,
+          almacen_origen_id: dto.almacen_origen_id,
+          observacion: dto.observacion,
+          referencia_id: dto.referencia_id,
+        },
+        qr,
+        
+      );
 
+      // 3) Vacíos: misma tx + misma fecha server
       if (dto.vacios?.length) {
         await this.vaciosService.registrarEntregaPedidoTx(qr, {
           cliente_id: dto.cliente_id,
           pedido_id: dto.pedido_id,
           pedido_codigo: dto.referencia_id, // "PED-..."
-          fecha: dto.fecha,
+          fecha: fechaServer.toISOString(), // ✅ normalizado (server time UTC)
           items: dto.vacios,
         });
       }
@@ -60,112 +67,122 @@ export class VentasService {
     }
   }
 
-  async registrarVenta(dto: RegistrarVentaDto) {
-    if (!dto.lineas?.length) {
-      throw new BadRequestException('La venta debe tener al menos una línea');
+ 
+
+async registrarVenta(dto: RegistrarVentaDto, qrExternal?: QueryRunner) {
+  if (!dto.lineas?.length) {
+    throw new BadRequestException('La venta debe tener al menos una línea');
+  }
+
+  dto.lineas.forEach((l, idx) => {
+    if (!(Number(l.cantidad) > 0)) {
+      throw new BadRequestException(
+        `La cantidad de la línea ${idx + 1} debe ser > 0`,
+      );
     }
+  });
 
-    dto.lineas.forEach((l, idx) => {
-      if (!(Number(l.cantidad) > 0)) {
-        throw new BadRequestException(
-          `La cantidad de la línea ${idx + 1} debe ser > 0`,
-        );
-      }
-    });
+  // ✅ NORMALIZADO: fecha SIEMPRE del servidor (UTC). No se usa dto.fecha.
+  const fecha = new Date();
 
-    const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
-    const refCodificada = generarReferenciaVenta(
-      dto.referencia_id,
-      fecha.toISOString(),
-    );
+  const refCodificada = generarReferenciaVenta(
+    dto.referencia_id,
+    fecha.toISOString(),
+  );
 
-    const qr = this.ds.createQueryRunner();
+  // ✅ Si viene QR externo, lo usamos. Si no viene, creamos como antes.
+  const qr = qrExternal ?? this.ds.createQueryRunner();
+  const ownsTransaction = !qrExternal;
+
+  if (ownsTransaction) {
     await qr.connect();
     await qr.startTransaction();
+  }
 
-    try {
-      const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
+  try {
+    // ✅ NORMALIZADO: reutilizamos fecha server (sin cambiar estructura)
+    const fecha = new Date();
 
-      // Cabecera movimiento
-      const mov = await qr.manager.save(
-        qr.manager.create(MovimientoStock, {
-          tipo: MovimientoTipo.VENTA,
-          fecha,
-          almacen_origen_id: dto.almacen_origen_id, // se usa por detalle
-          almacen_destino_id: null,
-          referencia_tipo: 'VENTA',
-          referencia_id: refCodificada ?? null,
-          observacion: dto.observacion ?? null,
-        }),
-      );
+    // Cabecera movimiento
+    const mov = await qr.manager.save(
+      qr.manager.create(MovimientoStock, {
+        tipo: MovimientoTipo.VENTA,
+        fecha,
+        almacen_origen_id: dto.almacen_origen_id, // se usa por detalle
+        almacen_destino_id: null,
+        referencia_tipo: 'VENTA',
+        referencia_id: refCodificada ?? null,
+        observacion: dto.observacion ?? null,
+      }),
+    );
 
-      const detallesResumen: Array<{
-        producto_id: number;
-        lote_id: string;
-        cantidad: string;
-        almacen_id: number;
-      }> = [];
+    const detallesResumen: Array<{
+      producto_id: number;
+      lote_id: string;
+      cantidad: string;
+      almacen_id: number;
+    }> = [];
 
-      // Helpers
-      const actualizarStockActual = async (
-        productoId: number,
-        almacenId: number,
-        deltaNegativo: number,
-      ) => {
-        const deltaStr = Number(deltaNegativo).toFixed(4);
-        await qr.query(
-          `
+    // Helpers
+    const actualizarStockActual = async (
+      productoId: number,
+      almacenId: number,
+      deltaNegativo: number,
+    ) => {
+      const deltaStr = Number(deltaNegativo).toFixed(4);
+      await qr.query(
+        `
           INSERT INTO public.stk_stock_actual (producto_id, almacen_id, cantidad)
           VALUES ($1, $2, $3)
           ON CONFLICT (producto_id, almacen_id)
           DO UPDATE SET cantidad = public.stk_stock_actual.cantidad + EXCLUDED.cantidad
         `,
-          [productoId, almacenId, deltaStr],
-        );
-      };
+        [productoId, almacenId, deltaStr],
+      );
+    };
 
-      const actualizarLoteAlmacen = async (
-        loteId: string,
-        almacenId: number,
-        deltaNegativo: number,
-      ) => {
-        const deltaStr = Number(deltaNegativo).toFixed(4);
-        await qr.query(
-          `
+    const actualizarLoteAlmacen = async (
+      loteId: string,
+      almacenId: number,
+      deltaNegativo: number,
+    ) => {
+      const deltaStr = Number(deltaNegativo).toFixed(4);
+      await qr.query(
+        `
           UPDATE public.stk_lote_almacen
              SET cantidad_disponible = cantidad_disponible + $3
            WHERE lote_id = $1
              AND almacen_id = $2
         `,
-          [loteId, almacenId, deltaStr],
-        );
-      };
+        [loteId, almacenId, deltaStr],
+      );
+    };
 
-      const actualizarLoteGlobal = async (
-        loteId: string,
-        deltaNegativo: number,
-      ) => {
-        const deltaStr = Number(deltaNegativo).toFixed(4);
-        await qr.query(
-          `
+    const actualizarLoteGlobal = async (
+      loteId: string,
+      deltaNegativo: number,
+    ) => {
+      const deltaStr = Number(deltaNegativo).toFixed(4);
+      await qr.query(
+        `
           UPDATE public.stk_lotes
              SET cantidad_disponible = cantidad_disponible + $2
            WHERE id = $1
         `,
-          [loteId, deltaStr],
-        );
-      };
+        [loteId, deltaStr],
+      );
+    };
 
-      // Procesar cada línea
-      for (const linea of dto.lineas) {
-        const pid = linea.producto_id;
-        const alm = linea.almacen_id;
-        let restante = Number(linea.cantidad);
+    // Procesar cada línea
+    for (const linea of dto.lineas) {
+      const pid = linea.producto_id;
+      const alm = linea.almacen_id;
+      let restante = Number(linea.cantidad);
 
-        // 1) Caso: viene lote_id explícito → consumo solo de ese lote
-        if (linea.lote_id) {
-          const row = await qr.query(
-            `
+      // 1) Caso: viene lote_id explícito → consumo solo de ese lote
+      if (linea.lote_id) {
+        const row = await qr.query(
+          `
             SELECT la.cantidad_disponible
               FROM public.stk_lote_almacen la
               JOIN public.stk_lotes l ON l.id = la.lote_id
@@ -174,52 +191,52 @@ export class VentasService {
                AND l.producto_id = $3
              FOR UPDATE
           `,
-            [alm, linea.lote_id, pid],
+          [alm, linea.lote_id, pid],
+        );
+
+        if (!row.length) {
+          throw new BadRequestException(
+            `No se encontró lote ${linea.lote_id} para producto ${pid} en almacén ${alm}`,
           );
-
-          if (!row.length) {
-            throw new BadRequestException(
-              `No se encontró lote ${linea.lote_id} para producto ${pid} en almacén ${alm}`,
-            );
-          }
-
-          const disp = Number(row[0].cantidad_disponible);
-          if (restante > disp + 1e-9) {
-            throw new BadRequestException(
-              `Stock insuficiente en lote ${linea.lote_id} (disp: ${disp}, pedido: ${restante})`,
-            );
-          }
-
-          const toma = restante;
-          const tomaStr = toma.toFixed(4);
-
-          await actualizarLoteAlmacen(linea.lote_id, alm, -toma);
-          await actualizarLoteGlobal(linea.lote_id, -toma);
-          await actualizarStockActual(pid, alm, -toma);
-
-          const det = qr.manager.create(MovimientoStockDetalle, {
-            movimiento: mov,
-            producto_id: pid,
-            lote_id: linea.lote_id,
-            cantidad: tomaStr,
-            efecto: -1,
-          });
-          await qr.manager.save(det);
-
-          detallesResumen.push({
-            producto_id: pid,
-            lote_id: linea.lote_id,
-            cantidad: tomaStr,
-            almacen_id: alm,
-          });
-
-          restante = 0;
         }
 
-        // 2) FIFO por lote si no vino lote_id (o si quedó remanente por alguna futura regla)
-        while (restante > 1e-9) {
-          const rows = await qr.query(
-            `
+        const disp = Number(row[0].cantidad_disponible);
+        if (restante > disp + 1e-9) {
+          throw new BadRequestException(
+            `Stock insuficiente en lote ${linea.lote_id} (disp: ${disp}, pedido: ${restante})`,
+          );
+        }
+
+        const toma = restante;
+        const tomaStr = toma.toFixed(4);
+
+        await actualizarLoteAlmacen(linea.lote_id, alm, -toma);
+        await actualizarLoteGlobal(linea.lote_id, -toma);
+        await actualizarStockActual(pid, alm, -toma);
+
+        const det = qr.manager.create(MovimientoStockDetalle, {
+          movimiento: mov,
+          producto_id: pid,
+          lote_id: linea.lote_id,
+          cantidad: tomaStr,
+          efecto: -1,
+        });
+        await qr.manager.save(det);
+
+        detallesResumen.push({
+          producto_id: pid,
+          lote_id: linea.lote_id,
+          cantidad: tomaStr,
+          almacen_id: alm,
+        });
+
+        restante = 0;
+      }
+
+      // 2) FIFO por lote si no vino lote_id (o si quedó remanente por alguna futura regla)
+      while (restante > 1e-9) {
+        const rows = await qr.query(
+          `
             SELECT la.lote_id,
                    la.cantidad_disponible,
                    l.fecha_remito,
@@ -233,65 +250,71 @@ export class VentasService {
             FOR UPDATE SKIP LOCKED
             LIMIT 1
           `,
-            [alm, pid],
+          [alm, pid],
+        );
+
+        if (!rows.length) {
+          throw new BadRequestException(
+            `Stock insuficiente en almacén ${alm} para producto ${pid}`,
           );
-
-          if (!rows.length) {
-            throw new BadRequestException(
-              `Stock insuficiente en almacén ${alm} para producto ${pid}`,
-            );
-          }
-
-          const row = rows[0] as {
-            lote_id: string;
-            cantidad_disponible: string;
-          };
-
-          const disp = Number(row.cantidad_disponible);
-          const toma = Math.min(restante, disp);
-          const tomaStr = toma.toFixed(4);
-
-          await actualizarLoteAlmacen(row.lote_id, alm, -toma);
-          await actualizarLoteGlobal(row.lote_id, -toma);
-          await actualizarStockActual(pid, alm, -toma);
-
-          const det = qr.manager.create(MovimientoStockDetalle, {
-            movimiento: mov,
-            producto_id: pid,
-            lote_id: row.lote_id,
-            cantidad: tomaStr,
-            efecto: -1,
-          });
-          await qr.manager.save(det);
-
-          detallesResumen.push({
-            producto_id: pid,
-            lote_id: row.lote_id,
-            cantidad: tomaStr,
-            almacen_id: alm,
-          });
-
-          restante = Number((restante - toma).toFixed(4));
         }
-      }
 
+        const row = rows[0] as {
+          lote_id: string;
+          cantidad_disponible: string;
+        };
+
+        const disp = Number(row.cantidad_disponible);
+        const toma = Math.min(restante, disp);
+        const tomaStr = toma.toFixed(4);
+
+        await actualizarLoteAlmacen(row.lote_id, alm, -toma);
+        await actualizarLoteGlobal(row.lote_id, -toma);
+        await actualizarStockActual(pid, alm, -toma);
+
+        const det = qr.manager.create(MovimientoStockDetalle, {
+          movimiento: mov,
+          producto_id: pid,
+          lote_id: row.lote_id,
+          cantidad: tomaStr,
+          efecto: -1,
+        });
+        await qr.manager.save(det);
+
+        detallesResumen.push({
+          producto_id: pid,
+          lote_id: row.lote_id,
+          cantidad: tomaStr,
+          almacen_id: alm,
+        });
+
+        restante = Number((restante - toma).toFixed(4));
+      }
+    }
+
+    if (ownsTransaction) {
       await qr.commitTransaction();
-      return {
-        ok: true,
-        movimiento_id: mov.id,
-        detalles: detallesResumen,
-      };
-    } catch (e) {
+    }
+
+    return {
+      ok: true,
+      movimiento_id: mov.id,
+      detalles: detallesResumen,
+    };
+  } catch (e) {
+    if (ownsTransaction) {
       await qr.rollbackTransaction();
-      console.error('[POST /stock/movimientos/venta] error:', e?.message || e);
-      throw new BadRequestException(
-        e?.detail || e?.message || 'Error registrando venta de stock',
-      );
-    } finally {
+    }
+    console.error('[POST /stock/movimientos/venta] error:', e?.message || e);
+    throw new BadRequestException(
+      e?.detail || e?.message || 'Error registrando venta de stock',
+    );
+  } finally {
+    if (ownsTransaction) {
       await qr.release();
     }
   }
-}
+
 
 // helpers/ventas.helpers.ts (o en el mismo service, arriba del @Injectable)
 // helpers/ventas.helpers.ts
@@ -413,4 +436,4 @@ function generarReferenciaVenta(
   return `${PREFIX}-${codNombre}-${fechaStr}-${horaStr}-${aleatorio}`;
 }
 
-
+}}
