@@ -43,14 +43,14 @@ export class ConteosService {
       const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
 
       const diaOperativoRows = await qr.query(
-            `
+        `
       SELECT
         ((($1::timestamptz AT TIME ZONE 'America/Argentina/Buenos_Aires')::date) + 1)::date AS dia
       `,
-            [fecha.toISOString()],
-          );
+        [fecha.toISOString()],
+      );
 
-          const diaOperativo = diaOperativoRows[0].dia; // 'YYYY-MM-DD'
+      const diaOperativo = diaOperativoRows[0].dia; // 'YYYY-MM-DD'
 
       // Cabecera única para todo el conteo
       const mov = await qr.manager.save(
@@ -100,16 +100,15 @@ export class ConteosService {
           cantidad_inicial = EXCLUDED.cantidad_inicial,
           movimiento_id    = EXCLUDED.movimiento_id
         `,
-              [
-                dia,
-                productoId,
-                almacenId,
-                toDecimal4(cantidadInicial),
-                movimientoId,
-              ],
-            );
-          };
-
+          [
+            dia,
+            productoId,
+            almacenId,
+            toDecimal4(cantidadInicial),
+            movimientoId,
+          ],
+        );
+      };
 
       const ajustesResumen: Array<{
         producto_id: number;
@@ -161,7 +160,6 @@ export class ConteosService {
             contado,
             mov.id,
           );
-
 
           continue;
         }
@@ -325,6 +323,42 @@ export class ConteosService {
           delta: toDecimal4(delta),
         });
       }
+
+      // 6) Completar snapshot para TODOS los productos/almacenes del día operativo
+      await qr.query(
+                    `
+              INSERT INTO public.stk_stock_inicial_diario
+                (dia, producto_id, almacen_id, cantidad_inicial, movimiento_id)
+              SELECT
+                $1::date                      AS dia,
+                p.id                          AS producto_id,
+                a.almacen_id                  AS almacen_id,
+                COALESCE(prev.cantidad_inicial, '0.0000')::numeric AS cantidad_inicial,
+                $2::uuid                      AS movimiento_id
+              FROM public.stk_productos p
+              JOIN public.stk_almacenes a
+                ON a.almacen_id IS NOT NULL
+              LEFT JOIN LATERAL (
+                SELECT sid.cantidad_inicial
+                FROM public.stk_stock_inicial_diario sid
+                WHERE sid.producto_id = p.id
+                  AND sid.almacen_id = a.almacen_id
+                  AND sid.dia < $1::date
+                ORDER BY sid.dia DESC
+                LIMIT 1
+              ) prev ON true
+              WHERE NOT EXISTS (
+                SELECT 1
+                FROM public.stk_stock_inicial_diario x
+                WHERE x.dia = $1::date
+                  AND x.producto_id = p.id
+                  AND x.almacen_id = a.almacen_id
+              )
+              ON CONFLICT (dia, producto_id, almacen_id)
+              DO NOTHING
+              `,
+                    [diaOperativo, mov.id],
+                  );
 
       await qr.commitTransaction();
 
