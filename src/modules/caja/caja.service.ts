@@ -93,18 +93,6 @@ export class CajaService {
         // if (!p.tarjetaUltimos4) throw new BadRequestException('tarjetaUltimos4 requerido para TARJETA');
       }
 
-      if (
-        p.metodoPago === MetodoPago.TRANSFERENCIA ||
-        p.metodoPago === MetodoPago.BILLETERA ||
-        p.metodoPago === MetodoPago.CHEQUE
-      ) {
-        // suele ser útil exigir entidad (Banco / MercadoPago / etc.)
-        if (!p.nombreEntidad || !String(p.nombreEntidad).trim()) {
-          throw new BadRequestException(
-            `nombreEntidad requerido para ${p.metodoPago}`,
-          );
-        }
-      }
     }
 
     sum = this.toNumber2(sum);
