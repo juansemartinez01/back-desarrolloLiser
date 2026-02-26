@@ -434,7 +434,9 @@ export class FacturasService {
     try {
       // si querés loguear / asociar a un emisor, agregalo en opts
       return await this.ext.postConsultarCondicionIva({
-        cuit_consulta: dto.cuit_consulta,
+        cuit_consulta: Number(dto.cuit_consulta),
+        cuit_computador: Number(dto.cuit_computador),
+        cuit_representado: Number(dto.cuit_representado),
       });
     } catch (e: any) {
       // el client ya te lo transforma en BadRequestException con mensaje útil
