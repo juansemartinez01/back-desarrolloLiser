@@ -825,7 +825,9 @@ export class RemitosService {
         'cantidad_declarada_total',
       )
       .where('r.es_ingreso_rapido = true')
-      .groupBy('r.id');
+      .groupBy('r.id')
+      // ✅ SOLO remitos cuya suma de cantidades != 0
+      .having('SUM(COALESCE(ri.cantidad_total::numeric, 0)) <> 0');
 
     if (desde) {
       qb.andWhere('r.fecha_remito >= :desde', { desde });
@@ -859,15 +861,30 @@ export class RemitosService {
     if (soloPend) {
       countQb.andWhere(
         `(
-          r.numero_remito IS NULL
-          OR EXISTS (
-            SELECT 1 FROM public.stk_remito_items x
-            WHERE x.remito_id = r.id
-              AND (x.cantidad_remito IS NULL)
-          )
-        )`,
+        r.numero_remito IS NULL
+        OR EXISTS (
+          SELECT 1 FROM public.stk_remito_items x
+          WHERE x.remito_id = r.id
+            AND (x.cantidad_remito IS NULL)
+        )
+      )`,
       );
     }
+
+    // ✅ mismo filtro "suma != 0" en el count:
+    countQb.andWhere(
+      'r.id IN (' +
+        countQb
+          .subQuery()
+          .select('r2.id')
+          .from('stk_remitos', 'r2')
+          .innerJoin('stk_remito_items', 'ri2', 'ri2.remito_id = r2.id')
+          .where('r2.es_ingreso_rapido = true')
+          .groupBy('r2.id')
+          .having('SUM(COALESCE(ri2.cantidad_total::numeric, 0)) <> 0')
+          .getQuery() +
+        ')',
+    );
 
     const total = await countQb.getRawOne().then((r: any) => Number(r?.c) || 0);
 
@@ -981,7 +998,6 @@ export class RemitosService {
 
         const emp = (prod.empresa ?? 'GLADIER').toUpperCase();
         const empresaFactura = emp === 'SAYRUS' ? 'SAYRUS' : 'GLADIER';
-
 
         const itemRows = await qr.query(
           `
