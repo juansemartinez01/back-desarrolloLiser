@@ -12,6 +12,18 @@ export type Endpoint =
   | '/consultar-condicion-iva';
 
 
+
+   export type CondicionIVAIn = {
+     cuit_consulta: number;
+     cuit_computador: number;
+     cuit_representado: number;
+   };
+
+   export type CondicionIVAOut = {
+     consulta: number;
+     condicion_iva: string;
+   };
+
 @Injectable()
 export class FactuExternalClient {
   private http: AxiosInstance;
@@ -82,15 +94,17 @@ export class FactuExternalClient {
     });
   }
 
-  postConsultarCondicionIva(
-    payload: { cuit_consulta: string | number },
-    opts?: { emisor_id?: string; idempotencyKey?: string },
-  ) {
-    return this.post('/consultar-condicion-iva', payload, {
-      ...opts,
-      documento_tipo: undefined,
-    });
-  }
+ 
+
+postConsultarCondicionIva(
+  payload: CondicionIVAIn,
+  opts?: { emisor_id?: string; idempotencyKey?: string },
+): Promise<CondicionIVAOut> {
+  return this.post('/consultar-condicion-iva', payload, {
+    ...opts,
+    documento_tipo: undefined,
+  });
+}
 
   // --- Core -------------------------------------------------------------------
 
