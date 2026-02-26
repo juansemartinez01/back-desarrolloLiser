@@ -40,8 +40,8 @@ export class ConteosService {
     await qr.startTransaction();
 
     try {
-      const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
-
+      //const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
+      const fecha = new Date();
       const diaOperativoRows = await qr.query(
         `
       SELECT

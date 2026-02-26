@@ -35,7 +35,8 @@ export class TransferenciasService {
     await qr.startTransaction();
 
     try {
-      const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
+      //const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
+      const fecha = new Date();
 
       // Cabecera de movimiento (sin almacén fijo porque puede haber varios)
       const mov = await qr.manager.save(

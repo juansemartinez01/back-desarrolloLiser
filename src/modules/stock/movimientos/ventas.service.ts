@@ -41,7 +41,12 @@ export class VentasService {
         qr,
         
       );
-
+      if (dto.vacios?.length) {
+        if (!dto.cliente_id) {
+          throw new BadRequestException(
+            'Cliente_id es obligatorio cuando se registran vacíos en una venta',
+          );
+        }
       // 3) Vacíos: misma tx + misma fecha server
       if (dto.vacios?.length) {
         await this.vaciosService.registrarEntregaPedidoTx(qr, {
@@ -52,7 +57,7 @@ export class VentasService {
           items: dto.vacios,
         });
       }
-
+    }
       await qr.commitTransaction();
       return {
         ok: true,
@@ -315,7 +320,7 @@ async registrarVenta(dto: RegistrarVentaDto, qrExternal?: QueryRunner) {
     }
   }
 
-
+}}
 // helpers/ventas.helpers.ts (o en el mismo service, arriba del @Injectable)
 // helpers/ventas.helpers.ts
 function generarReferenciaVenta(
@@ -436,4 +441,4 @@ function generarReferenciaVenta(
   return `${PREFIX}-${codNombre}-${fechaStr}-${horaStr}-${aleatorio}`;
 }
 
-}}
+
