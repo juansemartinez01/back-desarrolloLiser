@@ -94,17 +94,15 @@ export class FactuExternalClient {
     });
   }
 
- 
-
-postConsultarCondicionIva(
-  payload: CondicionIVAIn,
-  opts?: { emisor_id?: string; idempotencyKey?: string },
-): Promise<CondicionIVAOut> {
-  return this.post('/consultar-condicion-iva', payload, {
-    ...opts,
-    documento_tipo: undefined,
-  });
-}
+  postConsultarCondicionIva(
+    payload: CondicionIVAIn,
+    opts?: { emisor_id?: string; idempotencyKey?: string },
+  ): Promise<CondicionIVAOut> {
+    return this.post('/consultar-condicion-iva', payload, {
+      ...opts,
+      documento_tipo: undefined,
+    });
+  }
 
   // --- Core -------------------------------------------------------------------
 
