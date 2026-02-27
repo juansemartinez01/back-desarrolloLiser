@@ -2,6 +2,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
@@ -13,6 +14,7 @@ import { QueryProductosDto } from './dto/query-productos.dto';
 import { TipoProducto } from './entities/tipo-producto.entity';
 import { ProductoPrecioHistorial } from './entities/producto-precio-historial.entity';
 import { OutboxEvent } from '../outbox/outbox-event.entity';
+import axios from 'axios';
 
 // Quita acentos de forma simple
 function quitarAcentos(txt: string): string {
@@ -83,6 +85,7 @@ export function generarCodigoComercial(opts: {
 }
 @Injectable()
 export class ProductosService {
+  private readonly logger = new Logger(ProductosService.name);
   constructor(private readonly ds: DataSource) {}
 
   private toDecimal4(n: number | string | undefined): string {
@@ -149,28 +152,62 @@ export class ProductosService {
       // ✅ bootstrap de stock en 0 siguiendo crearRemitoDirecto
       await this.bootstrapStockOnCreate(manager, nuevoProducto);
 
-      // ✅ outbox
-      await manager.getRepository(OutboxEvent).save({
-        aggregate_type: 'Producto',
-        aggregate_id: String(nuevoProducto.id),
-        event_type: 'PRODUCTO_UPSERT_VENTAS',
-        payload: {
-          codigo_comercial: nuevoProducto.codigo_comercial,
-          nombre: nuevoProducto.nombre,
-          unidadId: nuevoProducto.unidad_id,
-          tipoProductoId: nuevoProducto.tipo_producto_id,
-          precio_base: Number(nuevoProducto.precio_base),
-          descripcion: nuevoProducto.descripcion ?? null,
-          vacio: nuevoProducto.vacio,
-          oferta: nuevoProducto.oferta,
-          precio_oferta: Number(nuevoProducto.precio_oferta ?? 0),
-          activo: nuevoProducto.activo,
-          imagen: nuevoProducto.imagen ?? null,
-          precioVacio: Number(nuevoProducto.precio_vacio ?? 0),
-          empresa: nuevoProducto.empresa ?? null,
-          id_interno: nuevoProducto.id_interno ?? '',
-        },
-      });
+      // // ✅ outbox
+      // await manager.getRepository(OutboxEvent).save({
+      //   aggregate_type: 'Producto',
+      //   aggregate_id: String(nuevoProducto.id),
+      //   event_type: 'PRODUCTO_UPSERT_VENTAS',
+      //   payload: {
+      //     codigo_comercial: nuevoProducto.codigo_comercial,
+      //     nombre: nuevoProducto.nombre,
+      //     unidadId: nuevoProducto.unidad_id,
+      //     tipoProductoId: nuevoProducto.tipo_producto_id,
+      //     precio_base: Number(nuevoProducto.precio_base),
+      //     descripcion: nuevoProducto.descripcion ?? null,
+      //     vacio: nuevoProducto.vacio,
+      //     oferta: nuevoProducto.oferta,
+      //     precio_oferta: Number(nuevoProducto.precio_oferta ?? 0),
+      //     activo: nuevoProducto.activo,
+      //     imagen: nuevoProducto.imagen ?? null,
+      //     precioVacio: Number(nuevoProducto.precio_vacio ?? 0),
+      //     empresa: nuevoProducto.empresa ?? null,
+      //     id_interno: nuevoProducto.id_interno ?? '',
+      //   },
+      // });
+
+      // SYNC Ventas por POST (si falla => rollback)
+      const payloadVentas = {
+        nombre: nuevoProducto.nombre,
+        precio_base: Number(nuevoProducto.precio_base),
+        unidadId: nuevoProducto.unidad_id,
+        tipoProductoId: nuevoProducto.tipo_producto_id,
+        descripcion: nuevoProducto.descripcion ?? undefined,
+        vacio: !!nuevoProducto.vacio,
+        oferta: !!nuevoProducto.oferta,
+        precio_oferta:
+          nuevoProducto.precio_oferta != null
+            ? Number(nuevoProducto.precio_oferta)
+            : undefined,
+        activo: !!nuevoProducto.activo,
+        imagen: nuevoProducto.imagen ?? undefined,
+        id_interno: nuevoProducto.id_interno ?? '', // ⚠️ ver abajo
+        precioVacio:
+          nuevoProducto.precio_vacio != null
+            ? Number(nuevoProducto.precio_vacio)
+            : undefined,
+        empresa: nuevoProducto.empresa ?? undefined,
+
+        // ✅ NUEVO: asegurás codigo_comercial siempre en ventas
+        codigo_comercial: nuevoProducto.codigo_comercial,
+      };
+
+      const sync = await this.syncVentasCrearProducto(payloadVentas);
+      if (!sync.ok) {
+        // IMPORTANTÍSIMO: throw => rollback de toda la tx stock
+        throw new BadRequestException(
+          `No se pudo crear producto en Ventas. Se revierte la creación. Motivo: ${sync.error ?? sync.reason}`,
+        );
+      }
 
       // ✅ historial (ideal con manager)
       await this.registrarHistorialTx(
@@ -518,5 +555,47 @@ export class ProductosService {
     });
 
     await historialRepo.save(registro);
+  }
+
+  private parseBool(v: any, def = false): boolean {
+    if (v === true || v === false) return v;
+    if (v === null || v === undefined) return def;
+    const s = String(v).trim().toLowerCase();
+    return ['1', 'true', 'yes', 'si', 'on'].includes(s);
+  }
+
+
+  private async syncVentasCrearProducto(payload: any) {
+    
+
+    const base = String(process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
+    const key = String(process.env.VENTAS_API_KEY ?? '').trim();
+
+    if (!base || !key) {
+      this.logger.warn('VENTAS_API_BASE/VENTAS_API_KEY no configurados.');
+      return { ok: false, skipped: true, reason: 'missing_env' };
+    }
+
+    const url = `${base}/productos`;
+
+    try {
+      const r = await axios.post(url, payload, {
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 8000,
+      });
+      return { ok: true, data: r.data };
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.message ??
+        e?.response?.data ??
+        e?.message ??
+        'Error creando producto en Ventas';
+
+      this.logger.error(`SYNC Ventas create producto falló: ${msg}`);
+      return { ok: false, error: msg };
+    }
   }
 }
