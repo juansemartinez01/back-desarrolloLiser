@@ -270,12 +270,11 @@ export class ProductosService {
   async update(id: number, dto: UpdateProductoDto) {
     return this.ds.transaction(async (manager) => {
       const repo = manager.getRepository(Producto);
-      const outboxRepo = manager.getRepository(OutboxEvent);
 
       const prod = await repo.findOne({ where: { id } });
       if (!prod) throw new NotFoundException('Producto no encontrado');
 
-      // Snapshot para detectar cambios relevantes
+      // Snapshot para detectar cambios relevantes (ventas)
       const before = {
         codigo_comercial: prod.codigo_comercial,
         nombre: prod.nombre,
@@ -294,7 +293,7 @@ export class ProductosService {
       };
 
       // -------------------------
-      // Aplicar cambios (como ya lo hacías)
+      // Aplicar cambios
       // -------------------------
       if (dto.nombre !== undefined) prod.nombre = dto.nombre;
       if (dto.unidad_id !== undefined) prod.unidad_id = dto.unidad_id;
@@ -308,7 +307,6 @@ export class ProductosService {
       if (dto.id_interno !== undefined) prod.id_interno = dto.id_interno;
       if (dto.empresa !== undefined) prod.empresa = dto.empresa;
 
-      // formateos (evitá repetir precio_base arriba y abajo)
       if (dto.precio_base !== undefined)
         prod.precio_base = this.toDecimal4(dto.precio_base);
       if (dto.precio_oferta !== undefined)
@@ -322,9 +320,6 @@ export class ProductosService {
       if (dto.precio_con_iva !== undefined)
         prod.precio_con_iva = this.toDecimal4(dto.precio_con_iva);
 
-      // OJO: vos tenías huboCambioAdmin considerando campos que NO estás asignando acá:
-      // dto.alicuota_iva, dto.exento_iva, dto.selector_fiscal
-      // Si esos campos existen en UpdateProductoDto y querés permitir update, agregá asignaciones:
       if ((dto as any).alicuota_iva !== undefined)
         (prod as any).alicuota_iva = (dto as any).alicuota_iva;
       if ((dto as any).exento_iva !== undefined)
@@ -345,7 +340,7 @@ export class ProductosService {
       // Guardar producto
       const actualizado = await repo.save(prod);
 
-      // Snapshot after
+      // Snapshot after (ventas)
       const after = {
         codigo_comercial: actualizado.codigo_comercial,
         nombre: actualizado.nombre,
@@ -365,37 +360,43 @@ export class ProductosService {
 
       const changedForVentas = JSON.stringify(before) !== JSON.stringify(after);
 
-      // Si cambió algo que impacta ventas, emitimos evento outbox
+      // ✅ Sync Ventas dentro de la TX (si falla -> throw -> rollback)
       if (changedForVentas) {
-        await outboxRepo.save({
-          aggregate_type: 'Producto',
-          aggregate_id: String(actualizado.id),
-          event_type: 'PRODUCTO_UPSERT_VENTAS',
-          payload: {
-            codigo_comercial: actualizado.codigo_comercial,
-            nombre: actualizado.nombre,
-            unidadId: actualizado.unidad_id,
-            tipoProductoId: actualizado.tipo_producto_id,
-            precio_base: Number(actualizado.precio_base),
-            descripcion: actualizado.descripcion ?? null,
-            vacio: actualizado.vacio,
-            oferta: actualizado.oferta,
-            precio_oferta: Number(actualizado.precio_oferta ?? 0),
-            activo: actualizado.activo,
-            imagen: actualizado.imagen ?? null,
-            precioVacio: Number(actualizado.precio_vacio ?? 0),
-            empresa: actualizado.empresa ?? null,
-            id_interno: actualizado.id_interno ?? '',
-          },
-        });
+        const payloadVentas = {
+          // si Ventas lo requiere, mandá siempre codigo_comercial
+          codigo_comercial: actualizado.codigo_comercial ?? null,
+          nombre: actualizado.nombre,
+          unidadId: actualizado.unidad_id,
+          tipoProductoId: actualizado.tipo_producto_id,
+          precio_base: Number(actualizado.precio_base ?? 0),
+          descripcion: actualizado.descripcion ?? null,
+          vacio: !!actualizado.vacio,
+          oferta: !!actualizado.oferta,
+          precio_oferta: Number(actualizado.precio_oferta ?? 0),
+          activo: !!actualizado.activo,
+          imagen: actualizado.imagen ?? null,
+          precioVacio: Number(actualizado.precio_vacio ?? 0),
+          empresa: actualizado.empresa ?? null,
+          id_interno: actualizado.id_interno ?? '',
+        };
+
+        if (!actualizado.codigo_comercial) {
+          throw new BadRequestException(
+            'Producto sin codigo_comercial: no se puede sincronizar con Ventas.',
+          );
+        }
+        const sync = await this.syncVentasUpdateByCodigo(payloadVentas);
+        if (!sync.ok) {
+          throw new BadRequestException(
+            `No se pudo actualizar producto en Ventas. Se revierte la modificación. Motivo: ${sync.error ?? sync.reason}`,
+          );
+        }
       }
 
-      // Historial admin (si corresponde)
+      // ✅ Historial admin dentro de la misma TX
       if (huboCambioAdmin) {
-        // IMPORTANTE: registrarHistorial debe usar el mismo manager si escribe en DB
-        // Si registrarHistorial usa this.ds internamente, puede abrir otra tx.
-        // Ideal: crear una versión registrarHistorialTx(manager, ...) o pasar el manager.
-        await this.registrarHistorial(
+        await this.registrarHistorialTx(
+          manager,
           actualizado,
           'MODIFICACIÓN ADMINISTRATIVA',
           'system',
@@ -564,10 +565,7 @@ export class ProductosService {
     return ['1', 'true', 'yes', 'si', 'on'].includes(s);
   }
 
-
   private async syncVentasCrearProducto(payload: any) {
-    
-
     const base = String(process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
     const key = String(process.env.VENTAS_API_KEY ?? '').trim();
 
@@ -595,6 +593,46 @@ export class ProductosService {
         'Error creando producto en Ventas';
 
       this.logger.error(`SYNC Ventas create producto falló: ${msg}`);
+      return { ok: false, error: msg };
+    }
+  }
+
+  private async syncVentasUpdateByCodigo(payload: any) {
+    const base = String(process.env.VENTAS_API_BASE ?? '').replace(/\/+$/, '');
+    const key = String(process.env.VENTAS_API_KEY ?? '').trim();
+
+    if (!base || !key) {
+      this.logger.warn(
+        `VENTAS_API_BASE/VENTAS_API_KEY no configurados. base="${base}" key_len=${key.length}`,
+      );
+      return { ok: false, skipped: true, reason: 'missing_env' };
+    }
+
+    const codigo = String(payload.codigo_comercial ?? '').trim();
+    if (!codigo) {
+      return { ok: false, error: 'codigo_comercial vacío (no se puede sync)' };
+    }
+
+    const url = `${base}/productos/by-codigo/${encodeURIComponent(codigo)}`;
+
+    try {
+      const r = await axios.put(url, payload, {
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 8000,
+      });
+      return { ok: true, data: r.data };
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const data = e?.response?.data;
+      const msg =
+        status != null
+          ? `HTTP ${status} - ${typeof data === 'string' ? data : JSON.stringify(data)}`
+          : (e?.message ?? 'Error sync Ventas');
+
+      this.logger.error(`SYNC Ventas update-by-codigo falló: ${msg}`);
       return { ok: false, error: msg };
     }
   }
