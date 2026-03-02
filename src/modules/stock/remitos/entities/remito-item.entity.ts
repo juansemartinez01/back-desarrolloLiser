@@ -58,5 +58,6 @@ export class RemitoItem extends BaseEntity {
 
   @Column({ type: 'varchar', length: 10, nullable: true })
   pallet_estado?: 'COMPLETO' | 'PARCIAL' | null;
+  
 }
 
