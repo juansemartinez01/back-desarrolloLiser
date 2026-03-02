@@ -51,5 +51,12 @@ export class RemitoItem extends BaseEntity {
 
   @OneToMany(() => StockLote, (l) => l.remito_item)
   lotes: StockLote[];
+
+  // ✅ NUEVO: pallet
+  @Column({ type: 'boolean', default: false })
+  pallet_descarga: boolean;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  pallet_estado?: 'COMPLETO' | 'PARCIAL' | null;
 }
 

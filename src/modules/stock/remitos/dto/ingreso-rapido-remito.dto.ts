@@ -12,6 +12,8 @@ import {
   IsUUID,
   MaxLength,
   IsNotEmpty,
+  IsIn,
+  IsBoolean,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -41,6 +43,16 @@ export class IngresoRapidoRemitoItemDto {
   @IsOptional()
   @IsString()
   nota?: string;
+
+  // ✅ NUEVO (opcional): se descargó desde pallet
+  @IsOptional()
+  @IsBoolean()
+  pallet_descarga?: boolean;
+
+  // ✅ NUEVO (opcional): COMPLETO/PARCIAL (solo si pallet_descarga=true)
+  @IsOptional()
+  @IsIn(['COMPLETO', 'PARCIAL'])
+  pallet_estado?: 'COMPLETO' | 'PARCIAL';
 }
 
 export class IngresoRapidoRemitoDto {

@@ -484,7 +484,24 @@ export class RemitosService {
           `Cantidad declarada no puede ser negativa (producto_id=${it.producto_id})`,
         );
       }
+
+      // ✅ Validación pallet (consistente con el CHECK de BD)
+      const palletDescarga = it.pallet_descarga === true;
+      const palletEstado = (it.pallet_estado ?? null) as any;
+
+      if (!palletDescarga && palletEstado) {
+        throw new BadRequestException(
+          `pallet_estado solo puede venir si pallet_descarga=true (producto_id=${it.producto_id})`,
+        );
+      }
+      if (palletDescarga && !palletEstado) {
+        throw new BadRequestException(
+          `Si pallet_descarga=true debe indicar pallet_estado=COMPLETO|PARCIAL (producto_id=${it.producto_id})`,
+        );
+      }
     }
+
+    
 
     const origen = normalizeOrigen((dto as any).origen_camion_txt);
     if (!origen)
@@ -576,6 +593,9 @@ export class RemitosService {
 
       // --- Insertar ítems "sucios" del Operario A ---
       for (const it of dto.items) {
+        const palletDescarga = it.pallet_descarga === true;
+        const palletEstado = palletDescarga ? (it.pallet_estado ?? null) : null;
+
         const itemRows = await qr.query(
           `
         INSERT INTO public.stk_remito_items
@@ -590,8 +610,10 @@ export class RemitosService {
            nombre_capturado,
            presentacion_txt,
            tamano_txt,
-           nota_operario_a)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           nota_operario_a,
+           pallet_descarga,
+   pallet_estado)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         RETURNING id,
                   producto_id,
                   unidad,
@@ -603,7 +625,9 @@ export class RemitosService {
                   nombre_capturado,
                   presentacion_txt,
                   tamano_txt,
-                  nota_operario_a
+                  nota_operario_a,
+                  pallet_descarga,
+                  pallet_estado
         `,
           [
             remitoId,
@@ -618,6 +642,8 @@ export class RemitosService {
             it.presentacion ?? null,
             it.tamano ?? null,
             it.nota ?? null,
+            palletDescarga,
+            palletEstado,
           ],
         );
 
