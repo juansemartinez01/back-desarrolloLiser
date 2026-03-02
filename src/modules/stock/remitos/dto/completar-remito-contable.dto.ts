@@ -11,6 +11,8 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { EmpresaFactura } from '../../enums/empresa-factura.enum';
+import { ItemsMoveDto } from './items-move.dto';
+import { AddRemitoItemDto } from './item-add-remito.dto';
 
 export class CompletarRemitoItemContableDto {
   @IsUUID()
@@ -56,4 +58,22 @@ export class CompletarRemitoContableDto {
   @ValidateNested({ each: true })
   @Type(() => CompletarRemitoItemContableDto)
   items: CompletarRemitoItemContableDto[];
+
+  @IsOptional()
+  @IsArray()
+  // uuid[] (si querés validación, agregale IsUUID('4',{each:true}))
+  items_remove?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AddRemitoItemDto)
+  items_add?: AddRemitoItemDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ItemsMoveDto)
+  items_move?: ItemsMoveDto;
 }
+
+
