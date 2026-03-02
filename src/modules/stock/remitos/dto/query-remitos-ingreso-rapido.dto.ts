@@ -1,5 +1,5 @@
 // dto/query-remitos-ingreso-rapido.dto.ts
-import { IsOptional, IsInt, Min, IsDateString } from 'class-validator';
+import { IsOptional, IsInt, Min, IsDateString, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class QueryRemitosIngresoRapidoDto {
@@ -15,6 +15,17 @@ export class QueryRemitosIngresoRapidoDto {
   @Type(() => Number)
   @IsInt()
   proveedor_id?: number;
+
+  // ✅ NUEVO: filtrar por producto_id (items)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  producto_id?: number;
+
+  // ✅ opcional: buscar por texto (nombre/código comercial del producto)
+  @IsOptional()
+  @IsString()
+  q_producto?: string;
 
   // por defecto solo pendientes
   @IsOptional()

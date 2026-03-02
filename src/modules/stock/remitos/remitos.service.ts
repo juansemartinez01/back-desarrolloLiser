@@ -673,119 +673,125 @@ export class RemitosService {
     }
   }
 
-  async completarRemitoContable(remitoId: string, dto: CompletarRemitoContableDto) {
-  const qr = this.ds.createQueryRunner();
-  await qr.connect();
-  await qr.startTransaction();
+  async completarRemitoContable(
+    remitoId: string,
+    dto: CompletarRemitoContableDto,
+  ) {
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
 
-  const prodRepo = qr.manager.getRepository(Producto);
-  const unidadRepo = qr.manager.getRepository(Unidad);
+    const prodRepo = qr.manager.getRepository(Producto);
+    const unidadRepo = qr.manager.getRepository(Unidad);
 
-  try {
-    const remRepo = qr.manager.getRepository(Remito);
-    const itemRepo = qr.manager.getRepository(RemitoItem);
-    const loteRepo = qr.manager.getRepository(StockLote);
+    try {
+      const remRepo = qr.manager.getRepository(Remito);
+      const itemRepo = qr.manager.getRepository(RemitoItem);
+      const loteRepo = qr.manager.getRepository(StockLote);
 
-    const remito = await remRepo.findOne({ where: { id: remitoId } });
-    if (!remito) throw new NotFoundException('Remito no encontrado');
+      const remito = await remRepo.findOne({ where: { id: remitoId } });
+      if (!remito) throw new NotFoundException('Remito no encontrado');
 
-    // ------------------------------------------------------------
-    // Flags de seguridad
-    // ------------------------------------------------------------
-    const esPreRemito =
-      remito.es_ingreso_rapido === true && remito.pendiente === true;
+      // ------------------------------------------------------------
+      // Flags de seguridad
+      // ------------------------------------------------------------
+      const esPreRemito =
+        remito.es_ingreso_rapido === true && remito.pendiente === true;
 
-    // ------------------------------------------------------------
-    // CABECERA (igual que antes)
-    // ------------------------------------------------------------
-    if (dto.numero_remito !== undefined && dto.numero_remito !== null) {
-      remito.numero_remito = dto.numero_remito;
-    }
-    if (dto.proveedor_id !== undefined) {
-      remito.proveedor_id = dto.proveedor_id === null ? null : dto.proveedor_id;
-    }
-    if (dto.proveedor_nombre !== undefined) {
-      remito.proveedor_nombre =
-        dto.proveedor_nombre === null ? null : dto.proveedor_nombre;
-    }
-    if (dto.observaciones !== undefined) {
-      remito.observaciones =
-        dto.observaciones === null ? null : dto.observaciones;
-    }
-    await remRepo.save(remito);
-
-    // Guardamos acá para el response si hubo MOVE
-    let nuevoRemitoId: string | null = null;
-
-    // ============================================================
-    // (A) REMOVE (anular items) - SOLO en pre-remito
-    // ============================================================
-    if (dto.items_remove?.length) {
-      if (!esPreRemito) {
-        throw new BadRequestException(
-          'No se pueden eliminar ítems: el remito ya fue confirmado (pendiente=false)',
-        );
+      // ------------------------------------------------------------
+      // CABECERA (igual que antes)
+      // ------------------------------------------------------------
+      if (dto.numero_remito !== undefined && dto.numero_remito !== null) {
+        remito.numero_remito = dto.numero_remito;
       }
+      if (dto.proveedor_id !== undefined) {
+        remito.proveedor_id =
+          dto.proveedor_id === null ? null : dto.proveedor_id;
+      }
+      if (dto.proveedor_nombre !== undefined) {
+        remito.proveedor_nombre =
+          dto.proveedor_nombre === null ? null : dto.proveedor_nombre;
+      }
+      if (dto.observaciones !== undefined) {
+        remito.observaciones =
+          dto.observaciones === null ? null : dto.observaciones;
+      }
+      await remRepo.save(remito);
 
-      for (const remitoItemId of dto.items_remove) {
-        const item = await itemRepo.findOne({
-          where: { id: remitoItemId, remito: { id: remitoId } },
-        });
-        if (!item) {
+      // Guardamos acá para el response si hubo MOVE
+      let nuevoRemitoId: string | null = null;
+
+      // ============================================================
+      // (A) REMOVE (anular items) - SOLO en pre-remito
+      // ============================================================
+      if (dto.items_remove?.length) {
+        if (!esPreRemito) {
           throw new BadRequestException(
-            `El ítem ${remitoItemId} no pertenece al remito`,
+            'No se pueden eliminar ítems: el remito ya fue confirmado (pendiente=false)',
           );
         }
 
-        // validar que no tenga lotes
-        const tieneLotes = await qr.query(
-          `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
-          [remitoItemId],
-        );
-        if (tieneLotes.length) {
-          throw new BadRequestException(
-            `No se puede eliminar el ítem ${remitoItemId}: ya tiene lotes`,
-          );
-        }
+        for (const remitoItemId of dto.items_remove) {
+          const item = await itemRepo.findOne({
+            where: { id: remitoItemId, remito: { id: remitoId } },
+          });
+          if (!item) {
+            throw new BadRequestException(
+              `El ítem ${remitoItemId} no pertenece al remito`,
+            );
+          }
 
-        await qr.query(
-          `UPDATE public.stk_remito_items
+          // validar que no tenga lotes
+          const tieneLotes = await qr.query(
+            `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
+            [remitoItemId],
+          );
+          if (tieneLotes.length) {
+            throw new BadRequestException(
+              `No se puede eliminar el ítem ${remitoItemId}: ya tiene lotes`,
+            );
+          }
+
+          await qr.query(
+            `UPDATE public.stk_remito_items
            SET anulado = true,
                updated_at = NOW()
            WHERE id = $1 AND remito_id = $2`,
-          [remitoItemId, remitoId],
-        );
-      }
-    }
-
-    // ============================================================
-    // (B) ADD (agregar item) - SOLO en pre-remito
-    // ============================================================
-    if (dto.items_add?.length) {
-      if (!esPreRemito) {
-        throw new BadRequestException(
-          'No se pueden agregar ítems: el remito ya fue confirmado (pendiente=false)',
-        );
-      }
-
-      for (const it of dto.items_add) {
-        // Validación pallet igual que ingreso rápido
-        const palletDescarga = it.pallet_descarga === true;
-        const palletEstado = palletDescarga ? (it.pallet_estado ?? null) : null;
-
-        if (!palletDescarga && palletEstado) {
-          throw new BadRequestException(
-            `pallet_estado solo puede venir si pallet_descarga=true (producto_id=${it.producto_id})`,
+            [remitoItemId, remitoId],
           );
         }
-        if (palletDescarga && !palletEstado) {
+      }
+
+      // ============================================================
+      // (B) ADD (agregar item) - SOLO en pre-remito
+      // ============================================================
+      if (dto.items_add?.length) {
+        if (!esPreRemito) {
           throw new BadRequestException(
-            `Si pallet_descarga=true debe indicar pallet_estado=COMPLETO|PARCIAL (producto_id=${it.producto_id})`,
+            'No se pueden agregar ítems: el remito ya fue confirmado (pendiente=false)',
           );
         }
 
-        await qr.query(
-          `
+        for (const it of dto.items_add) {
+          // Validación pallet igual que ingreso rápido
+          const palletDescarga = it.pallet_descarga === true;
+          const palletEstado = palletDescarga
+            ? (it.pallet_estado ?? null)
+            : null;
+
+          if (!palletDescarga && palletEstado) {
+            throw new BadRequestException(
+              `pallet_estado solo puede venir si pallet_descarga=true (producto_id=${it.producto_id})`,
+            );
+          }
+          if (palletDescarga && !palletEstado) {
+            throw new BadRequestException(
+              `Si pallet_descarga=true debe indicar pallet_estado=COMPLETO|PARCIAL (producto_id=${it.producto_id})`,
+            );
+          }
+
+          await qr.query(
+            `
           INSERT INTO public.stk_remito_items
             (remito_id,
              producto_id,
@@ -804,58 +810,62 @@ export class RemitosService {
              anulado)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,false)
           `,
-          [
-            remitoId,
-            it.producto_id,
-            null,
-            toDecimal4(it.cantidad_ingresada),
-            toDecimal4(it.cantidad_ingresada), // todo tipo1 por defecto
-            toDecimal4(0),
-            'GLADIER', // igual que ingreso rápido
-            toDecimal4(it.cantidad_declarada ?? 0),
-            it.nombre_producto ?? null,
-            it.presentacion ?? null,
-            it.tamano ?? null,
-            it.nota ?? null,
-            palletDescarga,
-            palletEstado,
-          ],
-        );
-      }
-    }
-
-    // ============================================================
-    // (C) MOVE (split a nuevo remito) - SOLO en pre-remito
-    // ============================================================
-    if (dto.items_move?.item_ids?.length) {
-      if (!esPreRemito) {
-        throw new BadRequestException(
-          'No se pueden mover ítems: el remito ya fue confirmado (pendiente=false)',
-        );
+            [
+              remitoId,
+              it.producto_id,
+              null,
+              toDecimal4(it.cantidad_ingresada),
+              toDecimal4(it.cantidad_ingresada), // todo tipo1 por defecto
+              toDecimal4(0),
+              'GLADIER', // igual que ingreso rápido
+              toDecimal4(it.cantidad_declarada ?? 0),
+              it.nombre_producto ?? null,
+              it.presentacion ?? null,
+              it.tamano ?? null,
+              it.nota ?? null,
+              palletDescarga,
+              palletEstado,
+            ],
+          );
+        }
       }
 
-      const provId = dto.items_move.to_new_remito.proveedor_id;
+      // ============================================================
+      // (C) MOVE (split a nuevo remito) - SOLO en pre-remito
+      // ============================================================
+      if (dto.items_move?.item_ids?.length) {
+        if (!esPreRemito) {
+          throw new BadRequestException(
+            'No se pueden mover ítems: el remito ya fue confirmado (pendiente=false)',
+          );
+        }
 
-      // validar proveedor en fin_proveedores
-      const provRows = await qr.query(
-        `SELECT id, nombre
+        const provId = dto.items_move.to_new_remito.proveedor_id;
+
+        // validar proveedor en fin_proveedores
+        const provRows = await qr.query(
+          `SELECT id, nombre
            FROM public.fin_proveedores
           WHERE id=$1 AND activo=true`,
-        [provId],
-      );
-      if (!provRows.length) {
-        throw new BadRequestException('Proveedor destino no encontrado o inactivo');
-      }
+          [provId],
+        );
+        if (!provRows.length) {
+          throw new BadRequestException(
+            'Proveedor destino no encontrado o inactivo',
+          );
+        }
 
-      const proveedorNombre =
-        (dto.items_move.to_new_remito.proveedor_nombre ??
-          provRows[0].nombre ??
-          '')
-          .toString()
-          .trim() || null;
+        const proveedorNombre =
+          (
+            dto.items_move.to_new_remito.proveedor_nombre ??
+            provRows[0].nombre ??
+            ''
+          )
+            .toString()
+            .trim() || null;
 
-      const nuevoRem = await qr.query(
-        `
+        const nuevoRem = await qr.query(
+          `
         INSERT INTO public.stk_remitos
           (fecha_remito,
            numero_remito,
@@ -884,45 +894,47 @@ export class RemitosService {
         WHERE r.id = $4
         RETURNING id
         `,
-        [
-          provId,
-          proveedorNombre,
-          dto.items_move.to_new_remito.observaciones ?? 'Split automático',
-          remitoId,
-        ],
-      );
+          [
+            provId,
+            proveedorNombre,
+            dto.items_move.to_new_remito.observaciones ?? 'Split automático',
+            remitoId,
+          ],
+        );
 
-      nuevoRemitoId = nuevoRem[0].id;
+        nuevoRemitoId = nuevoRem[0].id;
 
-      // validar items (pertenencia + no anulado + sin lotes)
-      for (const itemId of dto.items_move.item_ids) {
-        const item = await qr.query(
-          `SELECT id, anulado
+        // validar items (pertenencia + no anulado + sin lotes)
+        for (const itemId of dto.items_move.item_ids) {
+          const item = await qr.query(
+            `SELECT id, anulado
              FROM public.stk_remito_items
             WHERE id=$1 AND remito_id=$2`,
-          [itemId, remitoId],
-        );
-        if (!item.length) {
-          throw new BadRequestException(`El ítem ${itemId} no pertenece al remito`);
-        }
-        if (item[0].anulado === true) {
-          throw new BadRequestException(`El ítem ${itemId} está anulado`);
-        }
-
-        const tieneLotes = await qr.query(
-          `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
-          [itemId],
-        );
-        if (tieneLotes.length) {
-          throw new BadRequestException(
-            `No se puede mover el ítem ${itemId}: ya tiene lotes`,
+            [itemId, remitoId],
           );
-        }
-      }
+          if (!item.length) {
+            throw new BadRequestException(
+              `El ítem ${itemId} no pertenece al remito`,
+            );
+          }
+          if (item[0].anulado === true) {
+            throw new BadRequestException(`El ítem ${itemId} está anulado`);
+          }
 
-      // mover items al nuevo remito
-      await qr.query(
-        `
+          const tieneLotes = await qr.query(
+            `SELECT 1 FROM public.stk_lotes WHERE remito_item_id = $1 LIMIT 1`,
+            [itemId],
+          );
+          if (tieneLotes.length) {
+            throw new BadRequestException(
+              `No se puede mover el ítem ${itemId}: ya tiene lotes`,
+            );
+          }
+        }
+
+        // mover items al nuevo remito
+        await qr.query(
+          `
         UPDATE public.stk_remito_items
            SET remito_id = $1,
                updated_at = NOW()
@@ -930,131 +942,142 @@ export class RemitosService {
            AND id = ANY($3::uuid[])
            AND anulado = false
         `,
-        [nuevoRemitoId, remitoId, dto.items_move.item_ids],
-      );
-    }
+          [nuevoRemitoId, remitoId, dto.items_move.item_ids],
+        );
+      }
 
-    // ------------------------------------------------------------
-    // ITEMS (AJUSTE + AUTOCOMPLETE)  [igual, pero bloqueando anulados]
-    // ------------------------------------------------------------
-    const itemsActualizados: RemitoItem[] = [];
+      // ------------------------------------------------------------
+      // ITEMS (AJUSTE + AUTOCOMPLETE)  [igual, pero bloqueando anulados]
+      // ------------------------------------------------------------
+      const itemsActualizados: RemitoItem[] = [];
 
-    if (dto.items?.length) {
-      for (const it of dto.items) {
-        const item = await itemRepo.findOne({
-          where: { id: it.remito_item_id, remito: { id: remitoId } } as any,
-        });
+      if (dto.items?.length) {
+        for (const it of dto.items) {
+          const item = await itemRepo.findOne({
+            where: { id: it.remito_item_id, remito: { id: remitoId } } as any,
+          });
 
-        if (!item) {
-          throw new BadRequestException(
-            `El ítem ${it.remito_item_id} no pertenece al remito`,
-          );
-        }
-
-        // 🔒 si el item fue anulado, no permitir que lo editen
-        // (si todavía no tenés item.anulado en entity, esto puede dar undefined -> ok)
-        if ((item as any).anulado === true) {
-          throw new BadRequestException(
-            `El ítem ${it.remito_item_id} está anulado y no puede modificarse`,
-          );
-        }
-
-        // 1) producto REAL
-        if (it.producto_id != null) {
-          const prod = await prodRepo.findOne({ where: { id: it.producto_id } });
-          if (!prod) {
+          if (!item) {
             throw new BadRequestException(
-              `Producto ${it.producto_id} no existe en catálogo`,
+              `El ítem ${it.remito_item_id} no pertenece al remito`,
             );
           }
 
-          item.producto_id = prod.id;
-
-          // Unidad automática
-          if (!it.unidad && prod.unidad_id) {
-            const unidad = await unidadRepo.findOne({ where: { id: prod.unidad_id } });
-            if (unidad) item.unidad = unidad.codigo;
+          // 🔒 si el item fue anulado, no permitir que lo editen
+          // (si todavía no tenés item.anulado en entity, esto puede dar undefined -> ok)
+          if ((item as any).anulado === true) {
+            throw new BadRequestException(
+              `El ítem ${it.remito_item_id} está anulado y no puede modificarse`,
+            );
           }
 
-          // Empresa factura automática si no viene override
-          if (!it.empresa_factura) {
-            const emp = (prod.empresa ?? 'GLADIER').toUpperCase();
-            item.empresa_factura = (emp === 'SAYRUS' ? 'SAYRUS' : 'GLADIER') as any;
+          // 1) producto REAL
+          if (it.producto_id != null) {
+            const prod = await prodRepo.findOne({
+              where: { id: it.producto_id },
+            });
+            if (!prod) {
+              throw new BadRequestException(
+                `Producto ${it.producto_id} no existe en catálogo`,
+              );
+            }
+
+            item.producto_id = prod.id;
+
+            // Unidad automática
+            if (!it.unidad && prod.unidad_id) {
+              const unidad = await unidadRepo.findOne({
+                where: { id: prod.unidad_id },
+              });
+              if (unidad) item.unidad = unidad.codigo;
+            }
+
+            // Empresa factura automática si no viene override
+            if (!it.empresa_factura) {
+              const emp = (prod.empresa ?? 'GLADIER').toUpperCase();
+              item.empresa_factura = (
+                emp === 'SAYRUS' ? 'SAYRUS' : 'GLADIER'
+              ) as any;
+            }
           }
+
+          // 2) Overrides
+          if (it.unidad !== undefined) item.unidad = it.unidad;
+          if (it.empresa_factura != null)
+            item.empresa_factura = it.empresa_factura as any;
+          if (it.cantidad_remito != null)
+            item.cantidad_remito = toDecimal4(it.cantidad_remito);
+
+          await itemRepo.save(item);
+          itemsActualizados.push(item);
+        }
+      }
+
+      // ------------------------------------------------------------
+      // CREACIÓN DE LOTES FÍSICOS
+      // - igual que antes, pero IGNORA anulado=true
+      // ------------------------------------------------------------
+      if (remito.es_ingreso_rapido && remito.pendiente) {
+        const fechaLote = remito.fecha_remito;
+
+        // ⚠️ OJO: itemsActualizados puede contener subset.
+        // Si hubo updates: usamos esos, pero filtramos anulados.
+        // Si no: traemos todos los items del remito filtrando anulados.
+        let itemsBase: RemitoItem[];
+
+        if (itemsActualizados.length) {
+          itemsBase = itemsActualizados.filter(
+            (x) => (x as any).anulado !== true,
+          );
+        } else {
+          // Si tu entity NO tiene "anulado", esto puede fallar.
+          // En ese caso, reemplazalo por qr.query y listo (te dejo abajo alternativa).
+          itemsBase = await itemRepo.find({
+            where: { remito: { id: remitoId }, anulado: false as any } as any,
+          });
         }
 
-        // 2) Overrides
-        if (it.unidad !== undefined) item.unidad = it.unidad;
-        if (it.empresa_factura != null) item.empresa_factura = it.empresa_factura as any;
-        if (it.cantidad_remito != null) item.cantidad_remito = toDecimal4(it.cantidad_remito);
+        for (const item of itemsBase) {
+          const yaTieneLotes = await loteRepo.findOne({
+            where: { remito_item: { id: item.id } } as any,
+          });
+          if (yaTieneLotes) continue;
 
-        await itemRepo.save(item);
-        itemsActualizados.push(item);
+          const total = Number(item.cantidad_total);
+
+          const lote = loteRepo.create({
+            remito_item: { id: item.id } as any,
+            producto_id: item.producto_id,
+            fecha_remito: fechaLote,
+            lote_tipo: 1,
+            cantidad_inicial: toDecimal4(total),
+            cantidad_disponible: toDecimal4(total),
+            bloqueado: false,
+          });
+
+          await loteRepo.save(lote);
+        }
+
+        remito.pendiente = false;
+        await remRepo.save(remito);
       }
+
+      await qr.commitTransaction();
+      return { ok: true, remito_id: remitoId, nuevo_remito_id: nuevoRemitoId };
+    } catch (e: any) {
+      await qr.rollbackTransaction();
+      console.error(
+        '[PATCH /stock/remitos/:id/contable] error:',
+        e?.detail || e?.message || e,
+      );
+      throw new BadRequestException(
+        e?.detail ||
+          e?.message ||
+          'Error completando datos contables del remito',
+      );
+    } finally {
+      await qr.release();
     }
-
-    // ------------------------------------------------------------
-    // CREACIÓN DE LOTES FÍSICOS
-    // - igual que antes, pero IGNORA anulado=true
-    // ------------------------------------------------------------
-    if (remito.es_ingreso_rapido && remito.pendiente) {
-      const fechaLote = remito.fecha_remito;
-
-      // ⚠️ OJO: itemsActualizados puede contener subset.
-      // Si hubo updates: usamos esos, pero filtramos anulados.
-      // Si no: traemos todos los items del remito filtrando anulados.
-      let itemsBase: RemitoItem[];
-
-      if (itemsActualizados.length) {
-        itemsBase = itemsActualizados.filter((x) => (x as any).anulado !== true);
-      } else {
-        // Si tu entity NO tiene "anulado", esto puede fallar.
-        // En ese caso, reemplazalo por qr.query y listo (te dejo abajo alternativa).
-        itemsBase = await itemRepo.find({
-          where: { remito: { id: remitoId }, anulado: false as any } as any,
-        });
-      }
-
-      for (const item of itemsBase) {
-        const yaTieneLotes = await loteRepo.findOne({
-          where: { remito_item: { id: item.id } } as any,
-        });
-        if (yaTieneLotes) continue;
-
-        const total = Number(item.cantidad_total);
-
-        const lote = loteRepo.create({
-          remito_item: { id: item.id } as any,
-          producto_id: item.producto_id,
-          fecha_remito: fechaLote,
-          lote_tipo: 1,
-          cantidad_inicial: toDecimal4(total),
-          cantidad_disponible: toDecimal4(total),
-          bloqueado: false,
-        });
-
-        await loteRepo.save(lote);
-      }
-
-      remito.pendiente = false;
-      await remRepo.save(remito);
-    }
-
-    await qr.commitTransaction();
-    return { ok: true, remito_id: remitoId, nuevo_remito_id: nuevoRemitoId };
-  } catch (e: any) {
-    await qr.rollbackTransaction();
-    console.error(
-      '[PATCH /stock/remitos/:id/contable] error:',
-      e?.detail || e?.message || e,
-    );
-    throw new BadRequestException(
-      e?.detail || e?.message || 'Error completando datos contables del remito',
-    );
-  } finally {
-    await qr.release();
-  }
-
   }
 
   async listarRemitosIngresoRapido(q: QueryRemitosIngresoRapidoDto) {
@@ -1064,90 +1087,115 @@ export class RemitosService {
 
     const desde = q.desde ? new Date(q.desde) : undefined;
     const hasta = q.hasta ? new Date(q.hasta) : undefined;
+
     const soloPend =
       q.solo_pendientes === undefined || q.solo_pendientes === 'true';
 
+    // =========================================================
+    // DATA
+    // =========================================================
     const qb = this.ds
       .createQueryBuilder()
       .from('stk_remitos', 'r')
-      .innerJoin('stk_remito_items', 'ri', 'ri.remito_id = r.id')
+      // ✅ IMPORTANTÍSIMO: ignorar items anulados
+      .innerJoin(
+        'stk_remito_items',
+        'ri',
+        'ri.remito_id = r.id AND ri.anulado = false',
+      )
       .select([
-        'r.id              AS id',
-        'r.fecha_remito    AS fecha_remito',
-        'r.numero_remito   AS numero_remito',
-        'r.proveedor_id    AS proveedor_id',
+        'r.id               AS id',
+        'r.fecha_remito     AS fecha_remito',
+        'r.numero_remito    AS numero_remito',
+        'r.proveedor_id     AS proveedor_id',
         'r.proveedor_nombre AS proveedor_nombre',
         'r.es_ingreso_rapido AS es_ingreso_rapido',
+        'r.pendiente        AS pendiente',
       ])
       .addSelect('COUNT(ri.id)', 'items_count')
-      .addSelect('SUM(ri.cantidad_total)', 'cantidad_ingresada_total')
+      .addSelect('SUM(ri.cantidad_total::numeric)', 'cantidad_ingresada_total')
       .addSelect(
-        'SUM(COALESCE(ri.cantidad_remito, 0))',
+        'SUM(COALESCE(ri.cantidad_remito, 0)::numeric)',
         'cantidad_declarada_total',
       )
-      .where('r.es_ingreso_rapido = true')
-      .groupBy('r.id')
-      // ✅ SOLO remitos cuya suma de cantidades != 0
-      .having('SUM(COALESCE(ri.cantidad_total::numeric, 0)) <> 0');
+      .where('r.es_ingreso_rapido = true');
 
-    if (desde) {
-      qb.andWhere('r.fecha_remito >= :desde', { desde });
-    }
-    if (hasta) {
-      qb.andWhere('r.fecha_remito < :hasta', { hasta });
-    }
-    if (q.proveedor_id) {
+    if (desde) qb.andWhere('r.fecha_remito >= :desde', { desde });
+    if (hasta) qb.andWhere('r.fecha_remito < :hasta', { hasta });
+
+    if (q.proveedor_id != null) {
       qb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
+    }
+
+    // ✅ NUEVO: filtrar por producto_id (items)
+    if (q.producto_id != null) {
+      qb.andWhere('ri.producto_id = :pid', { pid: q.producto_id });
+    }
+
+    // ✅ opcional: búsqueda por texto de producto (nombre o codigo_comercial)
+    if (q.q_producto && q.q_producto.trim()) {
+      qb.innerJoin('stk_productos', 'p', 'p.id = ri.producto_id');
+      const s = `%${q.q_producto.trim()}%`;
+      qb.andWhere(
+        '(LOWER(p.nombre) LIKE LOWER(:s) OR LOWER(p.codigo_comercial) LIKE LOWER(:s))',
+        { s },
+      );
     }
 
     if (soloPend) {
       qb.andWhere('r.pendiente = true');
     }
 
-    qb.orderBy('r.fecha_remito', 'DESC').limit(limit).offset(skip);
+    qb.groupBy('r.id')
+      // ✅ SOLO remitos cuya suma de cantidades != 0
+      .having('SUM(COALESCE(ri.cantidad_total::numeric, 0)) <> 0')
+      .orderBy('r.fecha_remito', 'DESC')
+      .limit(limit)
+      .offset(skip);
 
     const data = await qb.getRawMany();
 
+    // =========================================================
+    // COUNT (consistente: mismos joins/filtros/having)
+    // Nota: con GROUP BY/HAVING, el count real es "cantidad de filas"
+    // =========================================================
     const countQb = this.ds
       .createQueryBuilder()
       .from('stk_remitos', 'r')
-      .innerJoin('stk_remito_items', 'ri', 'ri.remito_id = r.id')
-      .select('COUNT(DISTINCT r.id)', 'c')
+      .innerJoin(
+        'stk_remito_items',
+        'ri',
+        'ri.remito_id = r.id AND ri.anulado = false',
+      )
+      .select('r.id', 'id')
       .where('r.es_ingreso_rapido = true');
 
     if (desde) countQb.andWhere('r.fecha_remito >= :desde', { desde });
     if (hasta) countQb.andWhere('r.fecha_remito < :hasta', { hasta });
-    if (q.proveedor_id)
+    if (q.proveedor_id != null)
       countQb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
-    if (soloPend) {
+    if (q.producto_id != null)
+      countQb.andWhere('ri.producto_id = :pid', { pid: q.producto_id });
+
+    if (q.q_producto && q.q_producto.trim()) {
+      countQb.innerJoin('stk_productos', 'p', 'p.id = ri.producto_id');
+      const s = `%${q.q_producto.trim()}%`;
       countQb.andWhere(
-        `(
-        r.numero_remito IS NULL
-        OR EXISTS (
-          SELECT 1 FROM public.stk_remito_items x
-          WHERE x.remito_id = r.id
-            AND (x.cantidad_remito IS NULL)
-        )
-      )`,
+        '(LOWER(p.nombre) LIKE LOWER(:s) OR LOWER(p.codigo_comercial) LIKE LOWER(:s))',
+        { s },
       );
     }
 
-    // ✅ mismo filtro "suma != 0" en el count:
-    countQb.andWhere(
-      'r.id IN (' +
-        countQb
-          .subQuery()
-          .select('r2.id')
-          .from('stk_remitos', 'r2')
-          .innerJoin('stk_remito_items', 'ri2', 'ri2.remito_id = r2.id')
-          .where('r2.es_ingreso_rapido = true')
-          .groupBy('r2.id')
-          .having('SUM(COALESCE(ri2.cantidad_total::numeric, 0)) <> 0')
-          .getQuery() +
-        ')',
-    );
+    if (soloPend) {
+      countQb.andWhere('r.pendiente = true');
+    }
 
-    const total = await countQb.getRawOne().then((r: any) => Number(r?.c) || 0);
+    countQb
+      .groupBy('r.id')
+      .having('SUM(COALESCE(ri.cantidad_total::numeric, 0)) <> 0');
+
+    const countRows = await countQb.getRawMany();
+    const total = countRows.length;
 
     return { data, total, page, limit };
   }
