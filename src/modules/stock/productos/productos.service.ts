@@ -229,6 +229,13 @@ export class ProductosService {
     const repo = this.ds.getRepository(Producto);
     const qb = repo.createQueryBuilder('p');
 
+    // ✅ filtro proveedor (ANTES o DESPUÉS del search, da igual)
+    if (q.proveedor_id != null) {
+      qb.andWhere('p.proveedor_id = :pid', { pid: q.proveedor_id });
+    } else if (q.sin_proveedor === 'true') {
+      qb.andWhere('p.proveedor_id IS NULL');
+    }
+
     if (q.search) {
       const s = q.search.trim();
 
