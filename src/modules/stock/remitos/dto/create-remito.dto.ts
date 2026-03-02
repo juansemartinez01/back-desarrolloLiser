@@ -55,6 +55,12 @@ export class CreateRemitoDto {
   @Min(1)
   proveedor_id?: number;
 
+  // ✅ NUEVO (obligatorio)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  origen_camion_txt: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(200)

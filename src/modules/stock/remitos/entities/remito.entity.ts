@@ -39,6 +39,10 @@ export class Remito extends BaseEntity {
   @Column({ type: 'varchar', length: 120, nullable: true })
   conductor_camion_nombre?: string | null;
 
+  // ✅ NUEVO: origen del camión (por remito/viaje)
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  origen_camion_txt?: string | null;
+
   @OneToMany(() => RemitoItem, (ri) => ri.remito)
   items: RemitoItem[];
 }

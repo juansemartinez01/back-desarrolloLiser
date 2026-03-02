@@ -10,6 +10,8 @@ import {
   IsDateString,
   ValidateNested,
   IsUUID,
+  MaxLength,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -57,6 +59,12 @@ export class IngresoRapidoRemitoDto {
   // 👇 referencia a la nueva tabla de conductores
   @IsUUID()
   conductor_camion_id: string;
+
+  // ✅ NUEVO (obligatorio)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  origen_camion_txt: string;
 
   @IsOptional()
   @IsString()

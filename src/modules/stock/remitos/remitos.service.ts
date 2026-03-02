@@ -41,6 +41,10 @@ function sub(a: string, b: string | number): string {
   return (av - bv).toFixed(4);
 }
 
+function normalizeOrigen(origen: any): string {
+  return String(origen ?? '').trim();
+}
+
 @Injectable()
 export class RemitosService {
   constructor(private readonly ds: DataSource) {}
@@ -65,17 +69,22 @@ export class RemitosService {
     try {
       const fecha = new Date(dto.fecha_remito);
 
+      const origen = normalizeOrigen((dto as any).origen_camion_txt);
+      if (!origen)
+        throw new BadRequestException('Debe indicar el origen del camión');
+
       // Cabecera
       const remito = await qr.query(
-        `INSERT INTO public.stk_remitos (fecha_remito, numero_remito, proveedor_id, proveedor_nombre, observaciones)
-         VALUES ($1,$2,$3,$4,$5)
-         RETURNING id, fecha_remito, numero_remito, proveedor_id, proveedor_nombre, observaciones`,
+        `INSERT INTO public.stk_remitos (fecha_remito, numero_remito, proveedor_id, proveedor_nombre, observaciones, origen_camion_txt)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING id, fecha_remito, numero_remito, proveedor_id, proveedor_nombre, observaciones, origen_camion_txt`,
         [
           fecha,
           dto.numero_remito,
           dto.proveedor_id ?? null,
           dto.proveedor_nombre ?? null,
           dto.observaciones ?? null,
+          origen,
         ],
       );
       const remitoId: string = remito[0].id;
@@ -477,6 +486,10 @@ export class RemitosService {
       }
     }
 
+    const origen = normalizeOrigen((dto as any).origen_camion_txt);
+    if (!origen)
+      throw new BadRequestException('Debe indicar el origen del camión');
+
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -526,8 +539,9 @@ export class RemitosService {
          es_ingreso_rapido,
          pendiente,
          conductor_camion_id,
-         conductor_camion_nombre)
-      VALUES ($1,$2,$3,$4,$5,$6,true,true,$7,$8)
+         conductor_camion_nombre,
+         origen_camion_txt)
+      VALUES ($1,$2,$3,$4,$5,$6,true,true,$7,$8,$9)
       RETURNING id,
                 fecha_remito,
                 numero_remito,
@@ -538,7 +552,8 @@ export class RemitosService {
                 es_ingreso_rapido,
                 pendiente,
                 conductor_camion_id,
-                conductor_camion_nombre
+                conductor_camion_nombre,
+                origen_camion_txt
       `,
         [
           fechaRemito,
@@ -550,6 +565,7 @@ export class RemitosService {
           dto.almacen_id ?? null,
           dto.conductor_camion_id ?? null,
           conductorNombre,
+          origen,
         ],
       );
 
@@ -910,6 +926,10 @@ export class RemitosService {
       }
     }
 
+    const origen = normalizeOrigen((dto as any).origen_camion_txt);
+    if (!origen)
+      throw new BadRequestException('Debe indicar el origen del camión');
+
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -968,8 +988,9 @@ export class RemitosService {
          es_ingreso_rapido,
          pendiente,
          conductor_camion_id,
-         conductor_camion_nombre)
-      VALUES ($1,$2,$3,$4,$5,$6,true,false,$7,$8)
+         conductor_camion_nombre,
+         origen_camion_txt)
+      VALUES ($1,$2,$3,$4,$5,$6,true,false,$7,$8,$9)
       RETURNING id
       `,
         [
@@ -981,6 +1002,7 @@ export class RemitosService {
           dto.almacen_id ?? null,
           dto.conductor_camion_id,
           conductorNombre,
+          origen,
         ],
       );
 

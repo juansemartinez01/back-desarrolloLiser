@@ -4,6 +4,7 @@ import {
   IsArray,
   IsDateString,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -48,6 +49,12 @@ export class CreateRemitoDirectoDto {
 
   @IsUUID()
   conductor_camion_id: string;
+
+  // ✅ NUEVO (obligatorio)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  origen_camion_txt: string;
 
   @IsOptional()
   @IsString()
