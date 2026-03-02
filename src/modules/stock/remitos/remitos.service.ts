@@ -22,6 +22,7 @@ import { EmpresaFactura } from '../enums/empresa-factura.enum';
 import { Producto } from '../productos/entities/producto.entity';
 import { Unidad } from '../productos/entities/unidad.entity';
 import { CreateRemitoDirectoDto } from './dto/create-remito-directo.dto';
+import { CambiarProveedorRemitoDto } from './dto/cambiar-proveedor-remito.dto';
 
 
 
@@ -500,8 +501,6 @@ export class RemitosService {
         );
       }
     }
-
-    
 
     const origen = normalizeOrigen((dto as any).origen_camion_txt);
     if (!origen)
@@ -1114,6 +1113,59 @@ export class RemitosService {
       );
       throw new BadRequestException(
         e?.detail || e?.message || 'Error creando remito directo',
+      );
+    } finally {
+      await qr.release();
+    }
+  }
+
+  async cambiarProveedor(remitoId: string, dto: CambiarProveedorRemitoDto) {
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      // 1) remito existe
+      const rem = await qr.query(
+        `SELECT id, proveedor_id, proveedor_nombre
+       FROM public.stk_remitos
+       WHERE id = $1`,
+        [remitoId],
+      );
+      if (!rem?.length) throw new NotFoundException('Remito no encontrado');
+
+      // 2) proveedor existe y activo (tabla real: fin_proveedores)
+      const provRows = await qr.query(
+        `SELECT id, nombre
+       FROM public.fin_proveedores
+       WHERE id = $1 AND activo = true`,
+        [dto.proveedor_id],
+      );
+      if (!provRows.length) {
+        throw new BadRequestException('Proveedor no encontrado o inactivo');
+      }
+
+      const proveedorNombreFinal =
+        (dto.proveedor_nombre ?? provRows[0].nombre ?? '').toString().trim() ||
+        null;
+
+      // 3) update cabecera
+      const upd = await qr.query(
+        `UPDATE public.stk_remitos
+       SET proveedor_id = $1,
+           proveedor_nombre = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, proveedor_id, proveedor_nombre`,
+        [dto.proveedor_id, proveedorNombreFinal, remitoId],
+      );
+
+      await qr.commitTransaction();
+      return { ok: true, remito: upd[0] };
+    } catch (e: any) {
+      await qr.rollbackTransaction();
+      throw new BadRequestException(
+        e?.detail || e?.message || 'Error cambiando proveedor',
       );
     } finally {
       await qr.release();

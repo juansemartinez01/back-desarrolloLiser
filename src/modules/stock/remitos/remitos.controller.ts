@@ -15,6 +15,7 @@ import { IngresoRapidoRemitoDto } from './dto/ingreso-rapido-remito.dto';
 import { CompletarRemitoContableDto } from './dto/completar-remito-contable.dto';
 import { QueryRemitosIngresoRapidoDto } from './dto/query-remitos-ingreso-rapido.dto';
 import { CreateRemitoDirectoDto } from './dto/create-remito-directo.dto';
+import { CambiarProveedorRemitoDto } from './dto/cambiar-proveedor-remito.dto';
 
 @Controller('stock/remitos')
 export class RemitosController {
@@ -61,5 +62,13 @@ export class RemitosController {
     @Body() dto: CompletarRemitoContableDto,
   ) {
     return this.service.completarRemitoContable(id, dto);
+  }
+
+  @Patch(':id/proveedor')
+  async cambiarProveedor(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CambiarProveedorRemitoDto,
+  ) {
+    return this.service.cambiarProveedor(id, dto);
   }
 }
