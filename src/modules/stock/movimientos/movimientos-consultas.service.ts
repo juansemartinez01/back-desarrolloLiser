@@ -6,6 +6,7 @@ import { QueryVentasProductoDto } from './dto/query-ventas-producto.dto';
 import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
 import { QueryIngresosProductoDto } from './dto/query-ingresos-producto.dto';
 import { QueryEgresosProductoDto } from './dto/query-egresos-producto.dto';
+import { QueryAjustesConteoProductoDto } from './dto/query-ajustes-conteo-producto.dto';
 
 @Injectable()
 export class MovimientosConsultasService {
@@ -397,5 +398,104 @@ async egresosPorProducto(q: QueryEgresosProductoDto) {
     hasta: q.hasta,
   };
 }
+
+
+async ajustesConteoPorProducto(q: QueryAjustesConteoProductoDto) {
+    const page = q.page ?? 1;
+    const limit = Math.min(q.limit ?? 50, 200);
+    const offset = (page - 1) * limit;
+
+    const desde = new Date(q.desde);
+    const hasta = new Date(q.hasta);
+
+    const params: any = {
+      desde,
+      hasta,
+      tipoAjuste: MovimientoTipo.AJUSTE,
+      refTipo: 'CONTEO',
+    };
+
+    let where = `
+      m.fecha >= :desde
+      AND m.fecha <  :hasta
+      AND m.tipo = :tipoAjuste
+      AND m.referencia_tipo = :refTipo
+    `;
+
+    if (q.producto_id) {
+      where += ' AND d.producto_id = :pid';
+      params.pid = q.producto_id;
+    }
+
+    // Listado agregado por producto
+    const listQb = this.ds
+      .createQueryBuilder()
+      .from('stk_movimientos_det', 'd')
+      .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
+      .innerJoin('stk_productos', 'p', 'p.id = d.producto_id')
+      .select([
+        'd.producto_id                                      AS producto_id',
+        'p.nombre                                           AS producto_nombre',
+        'p.codigo_comercial                                 AS producto_codigo_comercial',
+        'p.unidad_id                                        AS unidad_id',
+        `SUM(d.cantidad::numeric * d.efecto)                AS delta_ajuste`,
+        `GREATEST(SUM(d.cantidad::numeric * d.efecto), 0)   AS sobrante`,
+        `GREATEST(-SUM(d.cantidad::numeric * d.efecto), 0)  AS faltante`,
+        'COUNT(DISTINCT m.id)                               AS cantidad_conteos',
+        'MIN(m.fecha)                                       AS primer_conteo_en_rango',
+        'MAX(m.fecha)                                       AS ultimo_conteo_en_rango',
+      ])
+      .where(where, params)
+      .groupBy('d.producto_id')
+      .addGroupBy('p.nombre')
+      .addGroupBy('p.codigo_comercial')
+      .addGroupBy('p.unidad_id')
+      // ✅ Solo productos con diferencia != 0
+      .having(`ABS(SUM(d.cantidad::numeric * d.efecto)) > 0.00005`)
+      .orderBy('faltante', 'DESC')
+      .addOrderBy('sobrante', 'DESC')
+      .addOrderBy('p.nombre', 'ASC')
+      .limit(limit)
+      .offset(offset);
+
+    const raw = await listQb.getRawMany();
+
+    // Total de productos (grupos) con diferencia != 0
+    const countQb = this.ds
+      .createQueryBuilder()
+      .from('stk_movimientos_det', 'd')
+      .innerJoin('stk_movimientos', 'm', 'm.id = d.movimiento_id')
+      .where(where, params)
+      .select('COUNT(DISTINCT d.producto_id)', 'c')
+      .groupBy('d.producto_id')
+      .having(`ABS(SUM(d.cantidad::numeric * d.efecto)) > 0.00005`);
+
+    // Como hay GROUP BY, contamos filas resultantes de esa query
+    const countRows = await countQb.getRawMany();
+    const total = countRows.length;
+
+    return {
+      data: raw.map((r: any) => ({
+        producto_id: Number(r.producto_id),
+        producto_nombre: r.producto_nombre,
+        producto_codigo_comercial: r.producto_codigo_comercial,
+        unidad_id: r.unidad_id ? Number(r.unidad_id) : null,
+
+        delta_ajuste: Number(r.delta_ajuste),
+        sobrante: Number(r.sobrante),
+        faltante: Number(r.faltante),
+
+        cantidad_conteos: Number(r.cantidad_conteos),
+        primer_conteo_en_rango: r.primer_conteo_en_rango,
+        ultimo_conteo_en_rango: r.ultimo_conteo_en_rango,
+      })),
+      total,
+      page,
+      limit,
+      desde: q.desde,
+      hasta: q.hasta,
+    };
+  }
+
 
 }
