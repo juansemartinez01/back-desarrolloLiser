@@ -46,6 +46,25 @@ function normalizeOrigen(origen: any): string {
   return String(origen ?? '').trim();
 }
 
+function normalizeRemitoExterno(v: any): string | null {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  return s.replace(/\s+/g, ' ').toUpperCase();
+}
+
+function buildCodigoInterno(now = new Date()): string {
+  // REM-YYYYMMDD-HHMMSS-ms (simple, determinista, único “en práctica”)
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const y = now.getFullYear();
+  const m = pad2(now.getMonth() + 1);
+  const d = pad2(now.getDate());
+  const hh = pad2(now.getHours());
+  const mm = pad2(now.getMinutes());
+  const ss = pad2(now.getSeconds());
+  const ms = String(now.getMilliseconds()).padStart(3, '0');
+  return `REM-${y}${m}${d}-${hh}${mm}${ss}-${ms}`;
+}
+
 @Injectable()
 export class RemitosService {
   constructor(private readonly ds: DataSource) {}
@@ -54,7 +73,6 @@ export class RemitosService {
     if (!dto.items?.length)
       throw new BadRequestException('El remito debe tener al menos un ítem');
 
-    // Validaciones previas
     for (const it of dto.items) {
       const sum = Number(it.cantidad_tipo1) + Number(it.cantidad_tipo2);
       if (Number(toDecimal4(sum)) !== Number(toDecimal4(it.cantidad_total))) {
@@ -67,6 +85,7 @@ export class RemitosService {
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
+
     try {
       const fecha = new Date(dto.fecha_remito);
 
@@ -74,31 +93,40 @@ export class RemitosService {
       if (!origen)
         throw new BadRequestException('Debe indicar el origen del camión');
 
+      const now = new Date();
+      const codigoInterno = buildCodigoInterno(now);
+
+      const externo = dto.numero_remito; // lo que te mandan en el papel
+      const externoNorm = normalizeRemitoExterno(externo);
+
       // Cabecera
       const remito = await qr.query(
-        `INSERT INTO public.stk_remitos (fecha_remito, numero_remito, proveedor_id, proveedor_nombre, observaciones, origen_camion_txt)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         RETURNING id, fecha_remito, numero_remito, proveedor_id, proveedor_nombre, observaciones, origen_camion_txt`,
+        `INSERT INTO public.stk_remitos
+        (fecha_remito, codigo_interno, numero_remito_externo, numero_remito_externo_norm,
+         proveedor_id, proveedor_nombre, observaciones, origen_camion_txt)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, fecha_remito, codigo_interno, numero_remito_externo, proveedor_id, proveedor_nombre, observaciones, origen_camion_txt`,
         [
           fecha,
-          dto.numero_remito,
+          codigoInterno,
+          externo ?? null,
+          externoNorm,
           dto.proveedor_id ?? null,
           dto.proveedor_nombre ?? null,
           dto.observaciones ?? null,
           origen,
         ],
       );
-      const remitoId: string = remito[0].id;
 
+      const remitoId: string = remito[0].id;
       const itemsOut: any[] = [];
 
-      // Items + lotes
       for (const it of dto.items) {
         const itemRow = await qr.query(
           `INSERT INTO public.stk_remito_items
-            (remito_id, producto_id, unidad, cantidad_total, cantidad_tipo1, cantidad_tipo2, empresa_factura)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
-           RETURNING id, producto_id, unidad, cantidad_total, cantidad_tipo1, cantidad_tipo2, empresa_factura`,
+          (remito_id, producto_id, unidad, cantidad_total, cantidad_tipo1, cantidad_tipo2, empresa_factura)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING id, producto_id, unidad, cantidad_total, cantidad_tipo1, cantidad_tipo2, empresa_factura`,
           [
             remitoId,
             it.producto_id,
@@ -109,42 +137,28 @@ export class RemitosService {
             it.empresa_factura,
           ],
         );
+
         const remitoItemId: string = itemRow[0].id;
 
         const lotes: any[] = [];
-        // TIPO_1
         const l1 = await qr.query(
           `INSERT INTO public.stk_lotes
-    (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
-   VALUES ($1,$2,$3,$4,$5,$5)
-   RETURNING id, lote_tipo, cantidad_inicial, cantidad_disponible`,
-          [
-            remitoItemId,
-            it.producto_id,
-            fecha,
-            1,
-            toDecimal4(it.cantidad_tipo1),
-          ],
+          (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
+         VALUES ($1,$2,$3,1,$4,$4)
+         RETURNING id, lote_tipo, cantidad_inicial, cantidad_disponible`,
+          [remitoItemId, it.producto_id, fecha, toDecimal4(it.cantidad_tipo1)],
         );
-
         lotes.push(l1[0]);
 
-        // TIPO_2
         const l2 = await qr.query(
           `INSERT INTO public.stk_lotes
-    (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
-   VALUES ($1,$2,$3,$4,$5,$5)
-   RETURNING id, lote_tipo, cantidad_inicial, cantidad_disponible`,
-          [
-            remitoItemId,
-            it.producto_id,
-            fecha,
-            2,
-            toDecimal4(it.cantidad_tipo2),
-          ],
+          (remito_item_id, producto_id, fecha_remito, lote_tipo, cantidad_inicial, cantidad_disponible)
+         VALUES ($1,$2,$3,2,$4,$4)
+         RETURNING id, lote_tipo, cantidad_inicial, cantidad_disponible`,
+          [remitoItemId, it.producto_id, fecha, toDecimal4(it.cantidad_tipo2)],
         );
-
         lotes.push(l2[0]);
+
         itemsOut.push({ ...itemRow[0], lotes });
       }
 
@@ -152,7 +166,6 @@ export class RemitosService {
       return { id: remitoId, ...remito[0], items: itemsOut };
     } catch (e: any) {
       await qr.rollbackTransaction();
-      // log breve y error claro al cliente
       console.error(
         '[POST /stock/remitos] error:',
         e?.detail || e?.message || e,
@@ -475,7 +488,6 @@ export class RemitosService {
       );
     }
 
-    // Validar cantidades
     for (const it of dto.items) {
       if (!(it.cantidad_ingresada > 0)) {
         throw new BadRequestException(
@@ -488,7 +500,6 @@ export class RemitosService {
         );
       }
 
-      // ✅ Validación pallet (consistente con el CHECK de BD)
       const palletDescarga = it.pallet_descarga === true;
       const palletEstado = (it.pallet_estado ?? null) as any;
 
@@ -515,22 +526,9 @@ export class RemitosService {
     try {
       const ahora = new Date();
       const fechaRemito = dto.fecha ? new Date(dto.fecha) : ahora;
+      const codigoInterno = buildCodigoInterno(ahora);
 
-      // número de remito interno automático (solo para identificar)
-      const numeroAuto = `AUTO-${ahora.getFullYear()}${(ahora.getMonth() + 1)
-        .toString()
-        .padStart(2, '0')}${ahora.getDate().toString().padStart(2, '0')}-${ahora
-        .getHours()
-        .toString()
-        .padStart(
-          2,
-          '0',
-        )}${ahora.getMinutes().toString().padStart(2, '0')}${ahora
-        .getSeconds()
-        .toString()
-        .padStart(2, '0')}`;
-
-      // --- Buscar nombre del conductor para snapshot (opcional) ---
+      // snapshot conductor opcional
       let conductorNombre: string | null = null;
       if (dto.conductor_camion_id) {
         const rows = await qr.query(
@@ -539,17 +537,16 @@ export class RemitosService {
           WHERE id = $1 AND activo = true`,
           [dto.conductor_camion_id],
         );
-        if (rows.length) {
-          conductorNombre = rows[0].nombre;
-        }
+        if (rows.length) conductorNombre = rows[0].nombre;
       }
 
-      // --- Insertar cabecera de "pre-remito" (sin lotes) ---
       const remRows = await qr.query(
         `
       INSERT INTO public.stk_remitos
         (fecha_remito,
-         numero_remito,
+         codigo_interno,
+         numero_remito_externo,
+         numero_remito_externo_norm,
          proveedor_id,
          proveedor_nombre,
          observaciones,
@@ -559,10 +556,11 @@ export class RemitosService {
          conductor_camion_id,
          conductor_camion_nombre,
          origen_camion_txt)
-      VALUES ($1,$2,$3,$4,$5,$6,true,true,$7,$8,$9)
+      VALUES ($1,$2,NULL,NULL,$3,$4,$5,$6,true,true,$7,$8,$9)
       RETURNING id,
                 fecha_remito,
-                numero_remito,
+                codigo_interno,
+                numero_remito_externo,
                 proveedor_id,
                 proveedor_nombre,
                 observaciones,
@@ -575,11 +573,10 @@ export class RemitosService {
       `,
         [
           fechaRemito,
-          numeroAuto,
+          codigoInterno,
           dto.proveedor_id ?? null,
           dto.proveedor_nombre ?? null,
           dto.observaciones ?? null,
-
           dto.almacen_id ?? null,
           dto.conductor_camion_id ?? null,
           conductorNombre,
@@ -592,7 +589,6 @@ export class RemitosService {
 
       const itemsOut: any[] = [];
 
-      // --- Insertar ítems "sucios" del Operario A ---
       for (const it of dto.items) {
         const palletDescarga = it.pallet_descarga === true;
         const palletEstado = palletDescarga ? (it.pallet_estado ?? null) : null;
@@ -613,7 +609,7 @@ export class RemitosService {
            tamano_txt,
            nota_operario_a,
            pallet_descarga,
-   pallet_estado)
+           pallet_estado)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         RETURNING id,
                   producto_id,
@@ -633,11 +629,11 @@ export class RemitosService {
           [
             remitoId,
             it.producto_id,
-            null, // unidad real la define el Operario B
-            toDecimal4(it.cantidad_ingresada), // física real
-            toDecimal4(it.cantidad_ingresada), // todo tipo1 por defecto (solo contable)
+            null,
+            toDecimal4(it.cantidad_ingresada),
+            toDecimal4(it.cantidad_ingresada),
             toDecimal4(0),
-            'GLADIER', // o el default que uses
+            'GLADIER',
             toDecimal4(it.cantidad_declarada ?? 0),
             it.nombre_producto ?? null,
             it.presentacion ?? null,
@@ -652,13 +648,7 @@ export class RemitosService {
       }
 
       await qr.commitTransaction();
-
-      // Devolvemos el "pre-remito" creado (sin lotes)
-      return {
-        ...remito,
-        id: remitoId,
-        items: itemsOut,
-      };
+      return { ...remito, id: remitoId, items: itemsOut };
     } catch (e: any) {
       await qr.rollbackTransaction();
       console.error(
@@ -701,8 +691,11 @@ export class RemitosService {
       // ------------------------------------------------------------
       // CABECERA (igual que antes)
       // ------------------------------------------------------------
-      if (dto.numero_remito !== undefined && dto.numero_remito !== null) {
-        remito.numero_remito = dto.numero_remito;
+      if (dto.numero_remito !== undefined) {
+        const externo = dto.numero_remito; // puede ser null/undefined según tu dto
+        remito.numero_remito_externo = externo === null ? null : externo;
+        remito.numero_remito_externo_norm =
+          externo === null ? null : normalizeRemitoExterno(externo);
       }
       if (dto.proveedor_id !== undefined) {
         remito.proveedor_id =
@@ -1106,7 +1099,8 @@ export class RemitosService {
       .select([
         'r.id               AS id',
         'r.fecha_remito     AS fecha_remito',
-        'r.numero_remito    AS numero_remito',
+        'r.codigo_interno     AS codigo_interno',
+        'r.numero_remito_externo AS numero_remito_externo',
         'r.proveedor_id     AS proveedor_id',
         'r.proveedor_nombre AS proveedor_nombre',
         'r.es_ingreso_rapido AS es_ingreso_rapido',
@@ -1205,7 +1199,6 @@ export class RemitosService {
       throw new BadRequestException('El remito debe tener al menos un ítem');
     }
 
-    // Validaciones “A”
     for (const it of dto.items) {
       if (!(it.cantidad_ingresada > 0)) {
         throw new BadRequestException(
@@ -1231,33 +1224,33 @@ export class RemitosService {
       const ahora = new Date();
       const fechaRemito = dto.fecha ? new Date(dto.fecha) : ahora;
 
-      // --- Snapshot conductor (igual que ingreso rápido) ---
+      const codigoInterno = buildCodigoInterno(ahora);
+      const externo = dto.numero_remito;
+      const externoNorm = normalizeRemitoExterno(externo);
+
       const condRows = await qr.query(
         `SELECT nombre
          FROM public.stk_conductores_camion
         WHERE id = $1 AND activo = true`,
         [dto.conductor_camion_id],
       );
-      if (!condRows.length) {
+      if (!condRows.length)
         throw new BadRequestException('Conductor no encontrado o inactivo');
-      }
       const conductorNombre = condRows[0].nombre as string;
 
-      // --- Precarga de productos + unidad (para completar strings) ---
       const productoIds = Array.from(
         new Set(dto.items.map((x) => x.producto_id)),
       );
 
       const productos = await qr.manager.getRepository(Producto).find({
         where: productoIds.map((id) => ({ id })) as any,
-        relations: { unidad: true }, // trae stk_unidades
+        relations: { unidad: true },
       });
 
       const prodById = new Map<number, Producto>(
         productos.map((p) => [p.id, p]),
       );
 
-      // Validar que existan todos
       for (const pid of productoIds) {
         if (!prodById.get(pid)) {
           throw new BadRequestException(
@@ -1266,14 +1259,13 @@ export class RemitosService {
         }
       }
 
-      // --- Crear cabecera tipo "ingreso rápido" pero ya confirmada ---
-      // Nota: mantenemos es_ingreso_rapido=true para que el flujo quede “idéntico”
-      // y sea trazable en reportes. Si preferís false, decime y lo ajustamos.
       const remRows = await qr.query(
         `
       INSERT INTO public.stk_remitos
         (fecha_remito,
-         numero_remito,
+         codigo_interno,
+         numero_remito_externo,
+         numero_remito_externo_norm,
          proveedor_id,
          proveedor_nombre,
          observaciones,
@@ -1283,12 +1275,14 @@ export class RemitosService {
          conductor_camion_id,
          conductor_camion_nombre,
          origen_camion_txt)
-      VALUES ($1,$2,$3,$4,$5,$6,true,false,$7,$8,$9)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,false,$9,$10,$11)
       RETURNING id
       `,
         [
           fechaRemito,
-          dto.numero_remito,
+          codigoInterno,
+          externo,
+          externoNorm,
           dto.proveedor_id ?? null,
           dto.proveedor_nombre ?? null,
           dto.observaciones ?? null,
@@ -1301,15 +1295,14 @@ export class RemitosService {
 
       const remitoId: string = remRows[0].id;
 
-      // --- Insert items "sucios" (pero autocompletados desde catálogo) ---
       const itemIds: string[] = [];
       for (const it of dto.items) {
         const prod = prodById.get(it.producto_id)!;
 
-        const nombre_producto = prod.nombre; // ✅ de producto.nombre
-        const presentacion = prod.unidad?.nombre ?? prod.unidad?.codigo ?? null; // ✅ de stk_unidades.nombre (fallback a codigo)
-        const tamano = '-'; // ✅ fijo
-        const nota = 'Carga directa desde caja.'; // ✅ fijo
+        const nombre_producto = prod.nombre;
+        const presentacion = prod.unidad?.nombre ?? prod.unidad?.codigo ?? null;
+        const tamano = '-';
+        const nota = 'Carga directa desde caja.';
 
         const emp = (prod.empresa ?? 'GLADIER').toUpperCase();
         const empresaFactura = emp === 'SAYRUS' ? 'SAYRUS' : 'GLADIER';
@@ -1335,11 +1328,11 @@ export class RemitosService {
           [
             remitoId,
             it.producto_id,
-            null, // igual que ingreso rápido (B define unidad real)
+            null,
             toDecimal4(it.cantidad_ingresada),
-            toDecimal4(it.cantidad_ingresada), // todo tipo1 por defecto
+            toDecimal4(it.cantidad_ingresada),
             toDecimal4(0),
-            empresaFactura, // desde producto
+            empresaFactura,
             toDecimal4(it.cantidad_declarada ?? 0),
             nombre_producto,
             presentacion,
@@ -1351,7 +1344,6 @@ export class RemitosService {
         itemIds.push(itemRows[0].id);
       }
 
-      // --- Crear lotes físicos (igual que confirmación) ---
       for (const remitoItemId of itemIds) {
         const row = await qr.query(
           `SELECT producto_id, cantidad_total

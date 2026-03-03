@@ -9,9 +9,19 @@ export class Remito extends BaseEntity {
   @Column({ type: 'timestamptz' })
   fecha_remito: Date;
 
+  // ✅ NUEVO: SIEMPRE interno (antes numero_remito)
   @Index()
   @Column({ type: 'varchar', length: 80 })
-  numero_remito: string;
+  codigo_interno: string;
+
+  // ✅ NUEVO: número del papel (externo)
+  @Index()
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  numero_remito_externo?: string | null;
+
+  @Index()
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  numero_remito_externo_norm?: string | null;
 
   @Index()
   @Column({ type: 'int', nullable: true })
