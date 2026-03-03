@@ -27,7 +27,7 @@ export class FraccionamientosService {
       // Cabecera de movimiento
       const mov = await qr.manager.save(
         qr.manager.create(MovimientoStock, {
-          tipo: MovimientoTipo.AJUSTE,
+          tipo: MovimientoTipo.FRACCIONAMIENTO,
           fecha,
           almacen_origen_id: null,
           almacen_destino_id: null,
@@ -299,7 +299,7 @@ export class FraccionamientosService {
       // Cabecera de movimiento
       const mov = await qr.manager.save(
         qr.manager.create(MovimientoStock, {
-          tipo: MovimientoTipo.AJUSTE,
+          tipo: MovimientoTipo.FRACCIONAMIENTO,
           fecha,
           almacen_origen_id: null,
           almacen_destino_id: null,
