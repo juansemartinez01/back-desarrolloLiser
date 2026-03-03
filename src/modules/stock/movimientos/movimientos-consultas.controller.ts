@@ -4,6 +4,7 @@ import { QueryMovimientosDto } from './dto/query-movimientos.dto';
 import { QueryVentasProductoDto } from './dto/query-ventas-producto.dto';
 import { QueryIngresosProductoDto } from './dto/query-ingresos-producto.dto';
 import { QueryEgresosProductoDto } from './dto/query-egresos-producto.dto';
+import { QueryAjustesConteoProductoDto } from './dto/query-ajustes-conteo-producto.dto';
 
 @Controller('stock/movimientos')
 export class MovimientosConsultasController {
@@ -22,6 +23,11 @@ export class MovimientosConsultasController {
   @Get('egresos-por-producto')
   async egresosPorProducto(@Query() q: QueryEgresosProductoDto) {
     return this.service.egresosPorProducto(q);
+  }
+
+  @Get('ajustes-conteo/por-producto')
+  ajustesConteoPorProducto(@Query() q: QueryAjustesConteoProductoDto) {
+    return this.service.ajustesConteoPorProducto(q);
   }
 
   // GET /stock/movimientos?tipo=...&producto_id=...&page=1&limit=50&...
