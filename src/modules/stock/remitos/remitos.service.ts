@@ -1136,7 +1136,13 @@ export class RemitosService {
       );
     }
 
-    if (soloPend) {
+    
+
+    // ✅ si viene solo_pendientes, filtrar por el valor exacto
+    if (q.solo_pendientes !== undefined) {
+      qb.andWhere('r.pendiente = :pend', { pend: soloPend });
+    } else {
+      // comportamiento default: solo pendientes
       qb.andWhere('r.pendiente = true');
     }
 
@@ -1180,7 +1186,9 @@ export class RemitosService {
       );
     }
 
-    if (soloPend) {
+    if (q.solo_pendientes !== undefined) {
+      countQb.andWhere('r.pendiente = :pend', { pend: soloPend });
+    } else {
       countQb.andWhere('r.pendiente = true');
     }
 
