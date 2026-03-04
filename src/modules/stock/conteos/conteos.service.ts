@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ConteoAjusteDto } from './dto/conteo-ajuste.dto';
 import { MovimientoStock } from '../movimientos/entities/movimiento-stock.entity';
 import { MovimientoStockDetalle } from '../movimientos/entities/movimiento-stock-detalle.entity';
 import { MovimientoTipo } from '../enums/movimiento-tipo.enum';
+import { Cron } from '@nestjs/schedule';
 
 function toDecimal4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -24,10 +25,9 @@ async function calcularDiaSiguienteAR(qr: any, fecha: Date): Promise<string> {
 
 @Injectable()
 export class ConteosService {
+  private readonly logger = new Logger(ConteosService.name);
   constructor(private readonly ds: DataSource) {}
 
-
-  
   async ajustarPorConteo(dto: ConteoAjusteDto) {
     if (!dto.lineas?.length) {
       throw new BadRequestException(
@@ -370,5 +370,124 @@ export class ConteosService {
     }
   }
 
-  
+  /**
+   * Crea el snapshot del "dia operativo" si NO existe.
+   * - Dia operativo = (fecha local AR + 1 día)
+   * - Copia primero del día anterior
+   * - Completa faltantes con stk_stock_actual (o 0)
+   * - SOLO almacenes con almacen_id IS NOT NULL (igual que tu query)
+   */
+  @Cron('59 23 * * *', { timeZone: 'America/Argentina/Buenos_Aires' })
+  async asegurarSnapshotDiaOperativo() {
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      // 1) Día operativo basado en DB (independiente del server us-east-2)
+      const dias = await qr.query(`
+        SELECT
+          (((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date) + 1)::date AS dia_operativo,
+          (((now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date))::date     AS dia_anterior
+      `);
+
+      const diaOperativo: string = dias[0].dia_operativo; // 'YYYY-MM-DD'
+      const diaAnterior: string = dias[0].dia_anterior; // 'YYYY-MM-DD'
+
+      // 2) Si ya existe snapshot para el diaOperativo -> no hacemos nada
+      const existe = await qr.query(
+        `SELECT 1 FROM public.stk_stock_inicial_diario WHERE dia = $1::date LIMIT 1`,
+        [diaOperativo],
+      );
+
+      if (existe.length) {
+        await qr.commitTransaction();
+        this.logger.log(`Snapshot ya existe para dia=${diaOperativo}`);
+        return { ok: true, dia: diaOperativo, created: false };
+      }
+
+      // 3) Movimiento “auto” para trazabilidad
+      const mov = await qr.manager.save(
+        qr.manager.create(MovimientoStock, {
+          tipo: MovimientoTipo.AJUSTE, // mantenemos tu enum sin agregar uno nuevo
+          fecha: new Date(),
+          almacen_origen_id: null,
+          almacen_destino_id: null,
+          referencia_tipo: 'SNAPSHOT_AUTO',
+          referencia_id: `SNAP-${diaOperativo}`,
+          observacion: `Snapshot automático (no hubo conteo). DiaOperativo=${diaOperativo}, Base=${diaAnterior}`,
+        }),
+      );
+
+      // 4) (A) Copiar desde día anterior -> día operativo (solo almacenes NOT NULL)
+      await qr.query(
+        `
+        INSERT INTO public.stk_stock_inicial_diario
+          (dia, producto_id, almacen_id, cantidad_inicial, movimiento_id)
+        SELECT
+          $1::date          AS dia,
+          s.producto_id,
+          s.almacen_id,
+          s.cantidad_inicial,
+          $2::uuid          AS movimiento_id
+        FROM public.stk_stock_inicial_diario s
+        WHERE s.dia = $3::date
+          AND s.almacen_id IS NOT NULL
+        ON CONFLICT (dia, producto_id, almacen_id)
+        DO NOTHING;
+        `,
+        [diaOperativo, mov.id, diaAnterior],
+      );
+
+      // 5) (B) Completar faltantes para TODOS los combos producto × almacén (almacen_id NOT NULL)
+      //     tomando stock_actual si existe, sino 0.
+      await qr.query(
+        `
+        INSERT INTO public.stk_stock_inicial_diario
+          (dia, producto_id, almacen_id, cantidad_inicial, movimiento_id)
+        SELECT
+          $1::date AS dia,
+          p.id     AS producto_id,
+          a.almacen_id AS almacen_id,
+          COALESCE(sa.cantidad, 0)::numeric(18,4) AS cantidad_inicial,
+          $2::uuid AS movimiento_id
+        FROM public.stk_productos p
+        JOIN public.stk_almacenes a
+          ON a.almacen_id IS NOT NULL
+        LEFT JOIN public.stk_stock_actual sa
+          ON sa.producto_id = p.id
+         AND sa.almacen_id  = a.almacen_id
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM public.stk_stock_inicial_diario x
+          WHERE x.dia = $1::date
+            AND x.producto_id = p.id
+            AND x.almacen_id  = a.almacen_id
+        )
+        ON CONFLICT (dia, producto_id, almacen_id)
+        DO NOTHING;
+        `,
+        [diaOperativo, mov.id],
+      );
+
+      await qr.commitTransaction();
+      this.logger.log(
+        `Snapshot auto creado para dia=${diaOperativo} mov=${mov.id}`,
+      );
+      return {
+        ok: true,
+        dia: diaOperativo,
+        created: true,
+        movimiento_id: mov.id,
+      };
+    } catch (e: any) {
+      await qr.rollbackTransaction();
+      this.logger.error(e?.detail || e?.message || e);
+      throw new BadRequestException(
+        e?.detail || e?.message || 'Error asegurando snapshot',
+      );
+    } finally {
+      await qr.release();
+    }
+  }
 }

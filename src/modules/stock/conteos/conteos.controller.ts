@@ -10,4 +10,9 @@ export class ConteosController {
   async ajustar(@Body() dto: ConteoAjusteDto) {
     return this.conteosService.ajustarPorConteo(dto);
   }
+
+  @Post('snapshot/asegurar')
+  async asegurarSnapshotManual() {
+    return this.conteosService.asegurarSnapshotDiaOperativo();
+  }
 }
