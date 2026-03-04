@@ -10,6 +10,7 @@ import {
 import { CargosService } from './cargos.service';
 import { CreateCargoDto, CreateCargosBulkDto } from './dto/create-cargo.dto';
 import { QueryCargosDto } from './dto/query-cargos.dto';
+import { CreateCargoConPagoDto } from './dto/create-cargo-con-pago.dto';
 
 @Controller('cc/cargos')
 export class CargosController {
@@ -21,7 +22,7 @@ export class CargosController {
   }
 
   @Post('con-pago')
-  async crearCargoConPago(@Body() dto: CreateCargoDto) {
+  async crearCargoConPago(@Body() dto: CreateCargoConPagoDto) {
     return this.service.crearCargoConPago(dto);
   }
 

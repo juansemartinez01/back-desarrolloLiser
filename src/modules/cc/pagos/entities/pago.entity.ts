@@ -31,6 +31,15 @@ export class CcPago extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   observacion?: string | null;
 
+  // ✅ NUEVO
+  @Index()
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  metodo_pago?: string | null;
+
+  // ✅ NUEVO
+  @Column({ type: 'varchar', length: 300, nullable: true })
+  datos_pago?: string | null;
+
   @OneToMany(() => CcPagoDet, (d) => d.pago)
   aplicaciones: CcPagoDet[];
 }

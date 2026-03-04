@@ -35,4 +35,14 @@ export class CreatePagoDto {
   @IsString()
   @MaxLength(1000)
   observacion?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  metodo_pago?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  datos_pago?: string;
 }

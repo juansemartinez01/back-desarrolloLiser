@@ -6,6 +6,7 @@ import {
 import { DataSource } from 'typeorm';
 import { CreateCargoDto } from './dto/create-cargo.dto';
 import { QueryCargosDto } from './dto/query-cargos.dto';
+import { CreateCargoConPagoDto } from './dto/create-cargo-con-pago.dto';
 
 function toDec4(n: number | string): string {
   const v = typeof n === 'string' ? Number(n) : n;
@@ -316,7 +317,7 @@ export class CargosService {
     return { cargo: cargo[0], aplicaciones: apps };
   }
 
-  async crearCargoConPago(dto: CreateCargoDto) {
+  async crearCargoConPago(dto: CreateCargoConPagoDto) { {
     const qr = this.ds.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -381,20 +382,22 @@ export class CargosService {
        */
 
       const pagoRows = await qr.query(
-        `
-      INSERT INTO public.cc_pagos
-        (fecha, cliente_id, cuenta, importe, observacion)
-      VALUES ($1,$2,$3,$4,$5)
-      RETURNING id, fecha, cliente_id, cuenta, importe
-      `,
-        [
-          fecha,
-          dto.cliente_id,
-          cuenta,
-          toDec4(importe),
-          dto.observacion ?? null,
-        ],
-      );
+          `
+          INSERT INTO public.cc_pagos
+            (fecha, cliente_id, cuenta, importe, observacion, metodo_pago, datos_pago)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+          RETURNING id, fecha, cliente_id, cuenta, importe, observacion, metodo_pago, datos_pago
+          `,
+          [
+            fecha,
+            dto.cliente_id,
+            cuenta,
+            toDec4(importe),
+            dto.observacion ?? null,
+            dto.metodo_pago?.trim() || null,
+            dto.datos_pago?.trim() || null,
+          ],
+        );
 
       const pago = pagoRows[0];
 
@@ -465,6 +468,8 @@ export class CargosService {
           cliente_id: pago.cliente_id,
           cuenta: pago.cuenta,
           importe: pago.importe,
+          metodo_pago: pago.metodo_pago,
+          datos_pago: pago.datos_pago,
         },
 
         cargo: {
@@ -489,5 +494,7 @@ export class CargosService {
     } finally {
       await qr.release();
     }
+  
+}
   }
 }

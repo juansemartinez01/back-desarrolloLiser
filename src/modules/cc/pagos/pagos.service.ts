@@ -58,9 +58,9 @@ export class PagosService {
       const pagoRows = await qr.query(
         `
         INSERT INTO public.cc_pagos
-          (fecha, cliente_id, cuenta, importe, referencia_externa, observacion)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        RETURNING id, fecha, cliente_id, cuenta, importe, referencia_externa, observacion, created_at, updated_at
+          (fecha, cliente_id, cuenta, importe, referencia_externa, observacion, metodo_pago, datos_pago)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        RETURNING id, fecha, cliente_id, cuenta, importe, referencia_externa, observacion, metodo_pago, datos_pago, created_at, updated_at
         `,
         [
           new Date(dto.fecha),
@@ -69,6 +69,8 @@ export class PagosService {
           toDec4(dto.importe_total),
           dto.referencia_externa ?? null,
           dto.observacion ?? null,
+          dto.metodo_pago?.trim() || null,
+          dto.datos_pago?.trim() || null,
         ],
       );
       const pago = pagoRows[0];
@@ -137,6 +139,8 @@ export class PagosService {
           importe_total: pago.importe,
           referencia_externa: pago.referencia_externa,
           observacion: pago.observacion,
+          metodo_pago: pago.metodo_pago,
+          datos_pago: pago.datos_pago,
         },
         aplicado: toDec4(Number(pago.importe) - Math.max(0, Number(restante))),
         sin_aplicar: toDec4(Math.max(0, Number(restante))),
