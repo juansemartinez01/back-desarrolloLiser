@@ -377,23 +377,6 @@ export class CargosService {
       }
 
       /**
-       * 4️⃣ VALIDAR TOPE
-       */
-
-      const tope = await getTopeDeuda(qr, dto.cliente_id, cuenta);
-      const saldoActual = await getSaldoActual(qr, dto.cliente_id, cuenta);
-      const saldoNuevo = saldoActual + importe;
-
-      if (saldoNuevo > tope + 1e-9) {
-        throw new BadRequestException(
-          `Tope de deuda excedido. ` +
-            `saldo=${saldoActual.toFixed(4)} ` +
-            `tope=${tope.toFixed(4)} ` +
-            `resultado=${saldoNuevo.toFixed(4)}`,
-        );
-      }
-
-      /**
        * 5️⃣ CREAR PAGO
        */
 
@@ -414,6 +397,23 @@ export class CargosService {
       );
 
       const pago = pagoRows[0];
+
+      /**
+       * 4️⃣ VALIDAR TOPE
+       */
+
+      const tope = await getTopeDeuda(qr, dto.cliente_id, cuenta);
+      const saldoActual = await getSaldoActual(qr, dto.cliente_id, cuenta);
+      const saldoNuevo = saldoActual + importe;
+
+      if (saldoNuevo > tope + 1e-9) {
+        throw new BadRequestException(
+          `Tope de deuda excedido. ` +
+            `saldo=${saldoActual.toFixed(4)} ` +
+            `tope=${tope.toFixed(4)} ` +
+            `resultado=${saldoNuevo.toFixed(4)}`,
+        );
+      }
 
       /**
        * 6️⃣ CREAR CARGO
