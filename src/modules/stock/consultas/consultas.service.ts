@@ -322,7 +322,7 @@ export class StockQueriesService {
     return { data, total, page, limit };
   }
 
-  async stockPorAlmacenes(q: any) {
+  async stockPorAlmacenes(q: QueryStockPorAlmacenesDto) {
     if (!q.almacenes) {
       throw new BadRequestException('Debe enviar ?almacenes=1,2,3');
     }
@@ -336,6 +336,9 @@ export class StockQueriesService {
     if (!almacenIds.length) {
       throw new BadRequestException('Formato inválido de almacenes');
     }
+
+
+    const soloConStock = q.solo_con_stock === 'true';
 
     const placeholders = almacenIds.map((_, i) => `$${i + 1}`).join(',');
 
@@ -362,7 +365,7 @@ export class StockQueriesService {
 
     const rows = await this.ds.query(sql, almacenIds);
 
-    const data = rows.map((r: any) => {
+    let data = rows.map((r: any) => {
       const almacenes = (r.almacenes ?? []).map((a: any) => ({
         almacen_id: a.almacen_id,
         cantidad: Number(a.cantidad ?? 0),
@@ -376,7 +379,13 @@ export class StockQueriesService {
       };
     });
 
-    return { data };
+    // ✅ filtro nuevo
+      if (soloConStock) {
+        data = data.filter((x) => x.total > 0);
+      }
+
+  return { data };
+
   }
 
   private async mapAlmacenIdsToUuids(intIds: number[]): Promise<string[]> {
