@@ -24,12 +24,19 @@ export class FraccionamientosService {
     try {
       const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
 
+      const almacenIds = dto.lineas
+        .map((l) => l.almacen_id)
+        .filter((x) => x != null);
+
+      const uniq = Array.from(new Set(almacenIds));
+      const almacenOrigenId = uniq.length === 1 ? uniq[0] : null;
+
       // Cabecera de movimiento
       const mov = await qr.manager.save(
         qr.manager.create(MovimientoStock, {
           tipo: MovimientoTipo.FRACCIONAMIENTO,
           fecha,
-          almacen_origen_id: null,
+          almacen_origen_id: almacenOrigenId,
           almacen_destino_id: null,
           referencia_tipo: 'FRACCION',
           referencia_id: 'FRACC-' + Date.now(),
@@ -296,12 +303,19 @@ export class FraccionamientosService {
     try {
       const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
 
+      const almacenIds = dto.lineas
+        .map((l) => l.almacen_id)
+        .filter((x) => x != null);
+
+      const uniq = Array.from(new Set(almacenIds));
+      const almacenOrigenId = uniq.length === 1 ? uniq[0] : null;
+
       // Cabecera de movimiento
       const mov = await qr.manager.save(
         qr.manager.create(MovimientoStock, {
           tipo: MovimientoTipo.FRACCIONAMIENTO,
           fecha,
-          almacen_origen_id: null,
+          almacen_origen_id: almacenOrigenId,
           almacen_destino_id: null,
           referencia_tipo: 'FRACCION_FACTOR',
           referencia_id: 'FRF-' + Date.now(),
