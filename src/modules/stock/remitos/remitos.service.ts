@@ -1007,40 +1007,33 @@ export class RemitosService {
       }
 
       // ------------------------------------------------------------
-      // CREACIÓN DE LOTES FÍSICOS
-      // - igual que antes, pero IGNORA anulado=true
+      // CREACIÓN DE LOTES FÍSICOS (para TODO item activo del remito)
       // ------------------------------------------------------------
       if (remito.es_ingreso_rapido && remito.pendiente) {
         const fechaLote = remito.fecha_remito;
 
-        // ⚠️ OJO: itemsActualizados puede contener subset.
-        // Si hubo updates: usamos esos, pero filtramos anulados.
-        // Si no: traemos todos los items del remito filtrando anulados.
-        let itemsBase: RemitoItem[];
+        // ✅ traer TODOS los items activos (incluye items_add)
+        const itemsBase = await qr.query(
+          `SELECT id, producto_id, cantidad_total
+       FROM public.stk_remito_items
+      WHERE remito_id = $1
+        AND anulado = false`,
+          [remitoId],
+        );
 
-        if (itemsActualizados.length) {
-          itemsBase = itemsActualizados.filter(
-            (x) => (x as any).anulado !== true,
-          );
-        } else {
-          // Si tu entity NO tiene "anulado", esto puede fallar.
-          // En ese caso, reemplazalo por qr.query y listo (te dejo abajo alternativa).
-          itemsBase = await itemRepo.find({
-            where: { remito: { id: remitoId }, anulado: false as any } as any,
-          });
-        }
+        for (const r of itemsBase) {
+          const remitoItemId = r.id as string;
 
-        for (const item of itemsBase) {
           const yaTieneLotes = await loteRepo.findOne({
-            where: { remito_item: { id: item.id } } as any,
+            where: { remito_item: { id: remitoItemId } } as any,
           });
           if (yaTieneLotes) continue;
 
-          const total = Number(item.cantidad_total);
+          const total = Number(r.cantidad_total);
 
           const lote = loteRepo.create({
-            remito_item: { id: item.id } as any,
-            producto_id: item.producto_id,
+            remito_item: { id: remitoItemId } as any,
+            producto_id: Number(r.producto_id),
             fecha_remito: fechaLote,
             lote_tipo: 1,
             cantidad_inicial: toDecimal4(total),
