@@ -12,6 +12,69 @@ function toDec4(n: number | string): string {
   return v.toFixed(4);
 }
 
+const PG_ENUM_CUENTA = 'cc_pago_cuenta';
+
+function cuentaNorm(v?: string) {
+  const c = String(v ?? 'CUENTA1').toUpperCase();
+  if (c !== 'CUENTA1' && c !== 'CUENTA2') return 'CUENTA1';
+  return c;
+}
+
+async function lockClienteCuenta(qr: any, clienteId: string, cuenta: string) {
+  await qr.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+    `cc:${clienteId}:${cuenta}`,
+  ]);
+}
+
+async function getTopeDeuda(qr: any, clienteId: string, cuenta: string) {
+  const r = await qr.query(
+    `
+    SELECT
+      CASE WHEN $2::text = 'CUENTA1' THEN tope_deuda_cuenta1
+           ELSE tope_deuda_cuenta2
+      END::numeric AS tope
+    FROM public.cc_clientes
+    WHERE id = $1
+    `,
+    [clienteId, cuenta],
+  );
+  return Number(r?.[0]?.tope ?? 0);
+}
+
+async function getSaldoActual(qr: any, clienteId: string, cuenta: string) {
+  const r = await qr.query(
+    `
+    WITH tot_cargos AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_cargos
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA}
+    ),
+    tot_pagos AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_pagos
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA}
+    ),
+    tot_nc AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_ajustes
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND tipo = 'NC'
+    ),
+    tot_nd AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_ajustes
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND tipo = 'ND'
+    )
+    SELECT
+      (SELECT s FROM tot_cargos)
+      + (SELECT s FROM tot_nd)
+      - (SELECT s FROM tot_pagos)
+      - (SELECT s FROM tot_nc) AS saldo_actual;
+    `,
+    [clienteId, cuenta],
+  );
+  return Number(r?.[0]?.saldo_actual ?? 0);
+}
+
 @Injectable()
 export class CargosService {
   constructor(private readonly ds: DataSource) {}
@@ -28,6 +91,48 @@ export class CargosService {
         [dto.cliente_id],
       );
       if (!cli?.length) throw new BadRequestException('Cliente inexistente');
+
+      const cuenta = cuentaNorm(dto.cuenta);
+      const ventaRefTipo = dto.venta_ref_tipo || 'VENTA';
+
+      // lock para concurrencia
+      await lockClienteCuenta(qr, dto.cliente_id, cuenta);
+
+      // leer tope
+      const tope = await getTopeDeuda(qr, dto.cliente_id, cuenta);
+
+      // ver si el cargo ya existe (por la unique del ON CONFLICT) y lockearlo
+      const existing = await qr.query(
+                `
+          SELECT id, importe::numeric(18,4) AS importe
+          FROM public.cc_cargos
+          WHERE cliente_id = $1
+            AND cuenta = $2::${PG_ENUM_CUENTA}
+            AND venta_ref_tipo = $3
+            AND venta_ref_id = $4
+          FOR UPDATE
+          `,
+        [dto.cliente_id, cuenta, ventaRefTipo, dto.venta_ref_id],
+      );
+
+      const oldImporte = existing?.length ? Number(existing[0].importe) : 0;
+
+      // saldo actual (incluye oldImporte si existía)
+      const saldoActual = await getSaldoActual(qr, dto.cliente_id, cuenta);
+
+      // saldoNuevo = (saldoActual - oldImporte) + newImporte
+      const newImporte = Number(dto.importe);
+      const saldoSinEsteCargo = saldoActual - oldImporte;
+      const saldoNuevo = saldoSinEsteCargo + newImporte;
+
+      if (saldoNuevo > tope + 1e-9) {
+        throw new BadRequestException(
+          `Tope de deuda excedido. ` +
+            `Saldo actual=${saldoActual.toFixed(4)}; ` +
+            `tope=${tope.toFixed(4)}; ` +
+            `saldo resultante=${saldoNuevo.toFixed(4)}.`,
+        );
+      }
 
       const fecha = new Date(dto.fecha);
       const fv = dto.fecha_vencimiento ? new Date(dto.fecha_vencimiento) : null;
@@ -51,8 +156,8 @@ export class CargosService {
               fecha,
               fv,
               dto.cliente_id,
-              dto.cuenta ?? 'CUENTA1',
-              dto.venta_ref_tipo || 'VENTA',
+              cuenta,
+              ventaRefTipo,
               dto.venta_ref_id,
               toDec4(dto.importe),
               dto.observacion ?? null,

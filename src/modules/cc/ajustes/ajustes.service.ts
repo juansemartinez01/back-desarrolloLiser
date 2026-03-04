@@ -12,6 +12,63 @@ function toDec4(n: number | string): string {
   return v.toFixed(4);
 }
 
+const PG_ENUM_CUENTA = 'cc_pago_cuenta';
+
+async function lockClienteCuenta(qr: any, clienteId: string, cuenta: string) {
+  await qr.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+    `cc:${clienteId}:${cuenta}`,
+  ]);
+}
+
+async function getTopeDeuda(qr: any, clienteId: string, cuenta: string) {
+  const r = await qr.query(
+    `
+    SELECT
+      CASE WHEN $2::text = 'CUENTA1' THEN tope_deuda_cuenta1
+           ELSE tope_deuda_cuenta2
+      END::numeric AS tope
+    FROM public.cc_clientes
+    WHERE id = $1
+    `,
+    [clienteId, cuenta],
+  );
+  return Number(r?.[0]?.tope ?? 0);
+}
+
+async function getSaldoActual(qr: any, clienteId: string, cuenta: string) {
+  const r = await qr.query(
+    `
+    WITH tot_cargos AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_cargos
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA}
+    ),
+    tot_pagos AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_pagos
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA}
+    ),
+    tot_nc AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_ajustes
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND tipo = 'NC'
+    ),
+    tot_nd AS (
+      SELECT COALESCE(SUM(importe),0)::numeric AS s
+      FROM public.cc_ajustes
+      WHERE cliente_id = $1 AND cuenta = $2::${PG_ENUM_CUENTA} AND tipo = 'ND'
+    )
+    SELECT
+      (SELECT s FROM tot_cargos)
+      + (SELECT s FROM tot_nd)
+      - (SELECT s FROM tot_pagos)
+      - (SELECT s FROM tot_nc) AS saldo_actual;
+    `,
+    [clienteId, cuenta],
+  );
+  return Number(r?.[0]?.saldo_actual ?? 0);
+}
+
 @Injectable()
 export class AjustesService {
   constructor(private readonly ds: DataSource) {}
@@ -137,6 +194,26 @@ export class AjustesService {
         // Si sobra, queda "crédito" (NC sin aplicar) en esa cuenta.
       } else {
         // ND: crear un CARGO que incrementa la deuda (misma cuenta)
+        await lockClienteCuenta(qr, dto.cliente_id, dto.cuenta);
+
+        const tope = await getTopeDeuda(qr, dto.cliente_id, dto.cuenta);
+        const saldoActual = await getSaldoActual(
+          qr,
+          dto.cliente_id,
+          dto.cuenta,
+        );
+
+        const saldoNuevo = saldoActual + Number(dto.monto_total);
+
+        if (saldoNuevo > tope + 1e-9) {
+          throw new BadRequestException(
+            `Tope de deuda excedido. ` +
+              `Saldo actual=${saldoActual.toFixed(4)}; ` +
+              `tope=${tope.toFixed(4)}; ` +
+              `saldo con ND=${saldoNuevo.toFixed(4)}.`,
+          );
+        }
+        
         const [cargo] = await qr.query(
           `
           INSERT INTO public.cc_cargos

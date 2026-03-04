@@ -14,6 +14,21 @@ function norm(v?: string | null): string | undefined {
   if (v == null) return undefined;
   const s = String(v).trim();
   return s.length ? s : undefined;
+
+  
+}
+
+function toDec4(n: number | string): string {
+  const v = typeof n === 'string' ? Number(n) : n;
+  if (!Number.isFinite(v)) return '0.0000';
+  return v.toFixed(4);
+}
+
+function topeOrUndefined(v: any): string | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const num = Number(v);
+  if (!Number.isFinite(num)) return undefined;
+  return toDec4(num);
 }
 
 @Injectable()
@@ -73,6 +88,8 @@ export class ClientesService {
         'externo_codigo',
         'telefono',
         'email',
+        'tope_deuda_cuenta1', // ✅
+        'tope_deuda_cuenta2',
         'activo',
         'created_at',
         'updated_at',
@@ -94,6 +111,8 @@ export class ClientesService {
         'externo_codigo',
         'telefono',
         'email',
+        'tope_deuda_cuenta1', // ✅
+        'tope_deuda_cuenta2',
         'activo',
         'created_at',
         'updated_at',
@@ -126,6 +145,11 @@ export class ClientesService {
       telefono: norm(dto.telefono) ?? null,
       email: norm(dto.email) ?? null,
       activo: dto.activo ?? true,
+
+      tope_deuda_cuenta1:
+        topeOrUndefined((dto as any).tope_deuda_cuenta1) ?? '0.0000',
+      tope_deuda_cuenta2:
+        topeOrUndefined((dto as any).tope_deuda_cuenta2) ?? '0.0000',
     });
     const saved = await this.repo.save(entity);
     return this.obtener(saved.id);
@@ -171,6 +195,16 @@ export class ClientesService {
           : (norm(dto.telefono) ?? null),
       email: dto.email === undefined ? cli.email : (norm(dto.email) ?? null),
       activo: dto.activo === undefined ? cli.activo : dto.activo,
+
+      tope_deuda_cuenta1:
+        (dto as any).tope_deuda_cuenta1 === undefined
+          ? cli.tope_deuda_cuenta1
+          : (topeOrUndefined((dto as any).tope_deuda_cuenta1) ?? '0.0000'),
+
+      tope_deuda_cuenta2:
+        (dto as any).tope_deuda_cuenta2 === undefined
+          ? cli.tope_deuda_cuenta2
+          : (topeOrUndefined((dto as any).tope_deuda_cuenta2) ?? '0.0000'),
     });
 
     await this.repo.save(cli);

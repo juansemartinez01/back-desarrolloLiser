@@ -1,10 +1,13 @@
 // src/modules/cc/clientes/dto/create-cliente.dto.ts
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -42,4 +45,17 @@ export class CreateClienteDto {
   @IsOptional()
   @IsBoolean()
   activo?: boolean; // default true si no viene
+
+  // ✅ NUEVO: topes de deuda (por cuenta). Default en DB = 0
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  tope_deuda_cuenta1?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  tope_deuda_cuenta2?: number;
 }

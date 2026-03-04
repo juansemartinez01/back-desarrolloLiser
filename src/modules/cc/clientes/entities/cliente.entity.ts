@@ -27,4 +27,10 @@ export class CcCliente extends BaseEntity {
   @Index()
   @Column({ type: 'boolean', default: true })
   activo: boolean;
+
+  @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
+  tope_deuda_cuenta1: string;
+
+  @Column({ type: 'numeric', precision: 18, scale: 4, default: 0 })
+  tope_deuda_cuenta2: string;
 }
