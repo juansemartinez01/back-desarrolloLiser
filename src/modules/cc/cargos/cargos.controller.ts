@@ -20,6 +20,11 @@ export class CargosController {
     return this.service.crearCargo(dto);
   }
 
+  @Post('con-pago')
+  async crearCargoConPago(@Body() dto: CreateCargoDto) {
+    return this.service.crearCargoConPago(dto);
+  }
+
   @Post('bulk')
   async crearBulk(@Body() dto: CreateCargosBulkDto) {
     return this.service.crearCargosBulk(dto.items ?? []);

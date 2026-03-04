@@ -103,7 +103,7 @@ export class CargosService {
 
       // ver si el cargo ya existe (por la unique del ON CONFLICT) y lockearlo
       const existing = await qr.query(
-                `
+        `
           SELECT id, importe::numeric(18,4) AS importe
           FROM public.cc_cargos
           WHERE cliente_id = $1
@@ -139,7 +139,7 @@ export class CargosService {
 
       // ON CONFLICT para idempotencia devolviendo la fila (creada o existente)
       const row = await qr.query(
-            `
+        `
       INSERT INTO public.cc_cargos
         (fecha, fecha_vencimiento, cliente_id, cuenta, venta_ref_tipo, venta_ref_id, importe, observacion)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -152,18 +152,17 @@ export class CargosService {
         updated_at = now()
       RETURNING id, fecha, fecha_vencimiento, cliente_id, cuenta, venta_ref_tipo, venta_ref_id, importe, observacion, created_at, updated_at;
       `,
-            [
-              fecha,
-              fv,
-              dto.cliente_id,
-              cuenta,
-              ventaRefTipo,
-              dto.venta_ref_id,
-              toDec4(dto.importe),
-              dto.observacion ?? null,
-            ],
-          );
-
+        [
+          fecha,
+          fv,
+          dto.cliente_id,
+          cuenta,
+          ventaRefTipo,
+          dto.venta_ref_id,
+          toDec4(dto.importe),
+          dto.observacion ?? null,
+        ],
+      );
 
       await qr.commitTransaction();
 
@@ -315,5 +314,180 @@ export class CargosService {
     );
 
     return { cargo: cargo[0], aplicaciones: apps };
+  }
+
+  async crearCargoConPago(dto: CreateCargoDto) {
+    const qr = this.ds.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      const cuenta = cuentaNorm(dto.cuenta);
+      const ventaRefTipo = dto.venta_ref_tipo || 'VENTA';
+      const importe = Number(dto.importe);
+
+      if (importe <= 0)
+        throw new BadRequestException('importe debe ser mayor a 0');
+
+      const fecha = new Date(dto.fecha);
+      const fv = dto.fecha_vencimiento ? new Date(dto.fecha_vencimiento) : null;
+
+      /**
+       * 1️⃣ validar cliente
+       */
+      const cli = await qr.query(
+        `SELECT id FROM public.cc_clientes WHERE id = $1`,
+        [dto.cliente_id],
+      );
+
+      if (!cli?.length) throw new BadRequestException('Cliente inexistente');
+
+      /**
+       * 2️⃣ LOCK cliente+cuenta
+       * evita race condition entre tablets
+       */
+      await lockClienteCuenta(qr, dto.cliente_id, cuenta);
+
+      /**
+       * 3️⃣ IDEMPOTENCIA
+       * si el cargo ya existe devolvemos el existente
+       */
+      const existing = await qr.query(
+        `
+      SELECT id
+      FROM public.cc_cargos
+      WHERE cliente_id = $1
+      AND cuenta = $2::${PG_ENUM_CUENTA}
+      AND venta_ref_tipo = $3
+      AND venta_ref_id = $4
+      LIMIT 1
+      `,
+        [dto.cliente_id, cuenta, ventaRefTipo, dto.venta_ref_id],
+      );
+
+      if (existing.length) {
+        const cargo = await this.obtenerCargo(existing[0].id);
+        await qr.rollbackTransaction();
+
+        return {
+          ok: true,
+          idempotente: true,
+          cargo,
+        };
+      }
+
+      /**
+       * 4️⃣ VALIDAR TOPE
+       */
+
+      const tope = await getTopeDeuda(qr, dto.cliente_id, cuenta);
+      const saldoActual = await getSaldoActual(qr, dto.cliente_id, cuenta);
+      const saldoNuevo = saldoActual + importe;
+
+      if (saldoNuevo > tope + 1e-9) {
+        throw new BadRequestException(
+          `Tope de deuda excedido. ` +
+            `saldo=${saldoActual.toFixed(4)} ` +
+            `tope=${tope.toFixed(4)} ` +
+            `resultado=${saldoNuevo.toFixed(4)}`,
+        );
+      }
+
+      /**
+       * 5️⃣ CREAR PAGO
+       */
+
+      const pagoRows = await qr.query(
+        `
+      INSERT INTO public.cc_pagos
+        (fecha, cliente_id, cuenta, importe, observacion)
+      VALUES ($1,$2,$3,$4,$5)
+      RETURNING id, fecha, cliente_id, cuenta, importe
+      `,
+        [
+          fecha,
+          dto.cliente_id,
+          cuenta,
+          toDec4(importe),
+          dto.observacion ?? null,
+        ],
+      );
+
+      const pago = pagoRows[0];
+
+      /**
+       * 6️⃣ CREAR CARGO
+       */
+
+      const cargoRows = await qr.query(
+        `
+      INSERT INTO public.cc_cargos
+        (fecha, fecha_vencimiento, cliente_id, cuenta, venta_ref_tipo, venta_ref_id, importe, observacion)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      RETURNING id, fecha, fecha_vencimiento, cliente_id, cuenta, venta_ref_tipo, venta_ref_id, importe
+      `,
+        [
+          fecha,
+          fv,
+          dto.cliente_id,
+          cuenta,
+          ventaRefTipo,
+          dto.venta_ref_id,
+          toDec4(importe),
+          dto.observacion ?? null,
+        ],
+      );
+
+      const cargo = cargoRows[0];
+
+      /**
+       * 7️⃣ APLICAR PAGO AL CARGO
+       */
+
+      await qr.query(
+        `
+      INSERT INTO public.cc_pagos_det
+        (pago_id, cargo_id, importe)
+      VALUES ($1,$2,$3)
+      `,
+        [pago.id, cargo.id, toDec4(importe)],
+      );
+
+      await qr.commitTransaction();
+
+      return {
+        ok: true,
+        idempotente: false,
+
+        pago: {
+          id: pago.id,
+          fecha: pago.fecha,
+          cliente_id: pago.cliente_id,
+          cuenta: pago.cuenta,
+          importe: pago.importe,
+        },
+
+        cargo: {
+          id: cargo.id,
+          fecha: cargo.fecha,
+          cliente_id: cargo.cliente_id,
+          cuenta: cargo.cuenta,
+          venta_ref_tipo: cargo.venta_ref_tipo,
+          venta_ref_id: cargo.venta_ref_id,
+          importe: cargo.importe,
+        },
+
+        aplicado: toDec4(importe),
+        sin_aplicar: '0.0000',
+      };
+    } catch (e: any) {
+      await qr.rollbackTransaction();
+
+      throw new BadRequestException(
+        e?.detail || e?.message || 'Error creando cargo con pago',
+      );
+    } finally {
+      await qr.release();
+    }
   }
 }
