@@ -13,6 +13,7 @@ import { MetodoPago } from './enums/metodo-pago.enum';
 import { TarjetaTipo } from './enums/tarjeta-tipo.enum';
 import { TipoMovimiento } from './enums/tipo-movimiento.enum';
 import { CajaMovimientoDetalle } from './entities/caja-movimiento-detalle.entity';
+import { QueryPanelCajaDto } from './dto/query-panel-caja.dto';
 
 @Injectable()
 export class CajaService {
@@ -40,7 +41,7 @@ export class CajaService {
     if (!Number.isFinite(x)) return NaN;
     return Math.round(x * 100) / 100;
   }
-  
+
   private normalizarPagos(dto: MovimientoDto) {
     // Si viene nuevo
     if (dto.pagos && dto.pagos.length) {
@@ -92,7 +93,6 @@ export class CajaService {
         // opcional: últimos 4 si querés forzarlo:
         // if (!p.tarjetaUltimos4) throw new BadRequestException('tarjetaUltimos4 requerido para TARJETA');
       }
-
     }
 
     sum = this.toNumber2(sum);
@@ -163,7 +163,6 @@ export class CajaService {
           pagos.length === 1 ? (pagos[0].nombreEntidad ?? null) : null,
       });
 
-
       const savedMov = await manager.getRepository(CajaMovimiento).save(mov);
 
       // Detalles
@@ -182,7 +181,6 @@ export class CajaService {
       );
 
       await detRepo.save(detalles);
-
 
       // devolvemos con detalles (útil para UI)
       return {
@@ -373,6 +371,336 @@ export class CajaService {
         label: s.nombre,
         value: s.id,
       })),
+    };
+  }
+
+  // =========================================================
+  // PANEL: movimientos + detalles + resumen (con filtros)
+  // =========================================================
+  async panelMovimientos(q: QueryPanelCajaDto) {
+    const page = Number(q.page ?? 1);
+    const limit = Number(q.limit ?? 50);
+    const offset = (page - 1) * limit;
+
+    const orderBy = q.orderBy === 'montoTotal' ? 'm.monto_total' : 'm.fecha';
+    const orderDir =
+      (q.orderDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const desde = q.desde ? new Date(q.desde) : null;
+    const hasta = q.hasta ? new Date(q.hasta) : null;
+
+    if (desde && Number.isNaN(desde.getTime()))
+      throw new BadRequestException('desde inválido');
+    if (hasta && Number.isNaN(hasta.getTime()))
+      throw new BadRequestException('hasta inválido');
+    if (desde && hasta && desde > hasta)
+      throw new BadRequestException('desde no puede ser > hasta');
+
+    // 1) Resolver aperturaId si no viene
+    let aperturaId = q.aperturaId ?? null;
+
+    if (!aperturaId && q.sucursalId) {
+      // Si no pasan aperturaId, elegimos:
+      // - si hay caja abierta en esa sucursal => esa
+      // - si no, la última apertura que caiga dentro del rango (o última en general)
+      const abierta = await this.aperturaRepo.findOne({
+        where: { sucursalId: q.sucursalId, abierta: true },
+        select: [
+          'id',
+          'fechaApertura',
+          'sucursalId',
+          'usuarioApertura',
+          'saldoInicial',
+          'abierta',
+        ],
+      });
+
+      if (abierta) {
+        aperturaId = abierta.id;
+      } else {
+        // última según rango (si hay fechas) o última en general
+        const whereParts: string[] = ['a.sucursal_id = $1'];
+        const params: any[] = [q.sucursalId];
+        let p = params.length;
+
+        if (desde) {
+          whereParts.push(`a.fecha_apertura >= $${++p}`);
+          params.push(desde);
+        }
+        if (hasta) {
+          whereParts.push(`a.fecha_apertura <= $${++p}`);
+          params.push(hasta);
+        }
+
+        const rows = await this.ds.query(
+          `
+          SELECT a.id
+          FROM caja_apertura a
+          WHERE ${whereParts.join(' AND ')}
+          ORDER BY a.fecha_apertura DESC
+          LIMIT 1
+          `,
+          params,
+        );
+
+        aperturaId = rows?.[0]?.id ?? null;
+      }
+    }
+
+    if (!aperturaId) {
+      throw new BadRequestException(
+        'Debe venir aperturaId o sucursalId (con una apertura resolvible)',
+      );
+    }
+
+    // 2) WHERE dinámico (siempre filtramos por aperturaId)
+    const where: string[] = ['m.apertura_id = $1'];
+    const params: any[] = [aperturaId];
+    let idx = 1;
+
+    if (desde) {
+      where.push(`m.fecha >= $${++idx}`);
+      params.push(desde);
+    }
+    if (hasta) {
+      where.push(`m.fecha <= $${++idx}`);
+      params.push(hasta);
+    }
+    if (q.tipo) {
+      where.push(`m.tipo = $${++idx}`);
+      params.push(q.tipo);
+    }
+    if (q.usuario) {
+      where.push(`m.usuario ILIKE $${++idx}`);
+      params.push(`%${q.usuario}%`);
+    }
+    if (q.q) {
+      // busca por id / referencia / usuario
+      where.push(
+        `(CAST(m.id AS text) ILIKE $${++idx} OR COALESCE(m.referencia,'') ILIKE $${idx} OR m.usuario ILIKE $${idx})`,
+      );
+      params.push(`%${q.q}%`);
+    }
+    if (q.metodosPago?.length) {
+      // filtra por existencia de algún detalle con esos métodos
+      where.push(
+        `EXISTS (
+          SELECT 1
+          FROM caja_movimiento_detalle d
+          WHERE d.movimiento_id = m.id
+            AND d.metodo_pago = ANY($${++idx})
+        )`,
+      );
+      params.push(q.metodosPago);
+    }
+
+    const whereSql = where.join(' AND ');
+
+    // 3) Total count (para paginar)
+    const countRows = await this.ds.query(
+      `SELECT COUNT(*)::int AS total FROM caja_movimiento m WHERE ${whereSql}`,
+      params,
+    );
+    const total = Number(countRows?.[0]?.total ?? 0);
+
+    // 4) Traer IDs paginados (rápido)
+    const idRows = await this.ds.query(
+      `
+      SELECT m.id
+      FROM caja_movimiento m
+      WHERE ${whereSql}
+      ORDER BY ${orderBy} ${orderDir}, m.id ${orderDir}
+      LIMIT $${++idx} OFFSET $${++idx}
+      `,
+      [...params, limit, offset],
+    );
+    const ids: string[] = idRows.map((r: any) => r.id);
+
+    if (!ids.length) {
+      // igual devolvemos resumen/facets en 0 para UI consistente
+      return {
+        aperturaId,
+        paginacion: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+        resumen: {
+          netoGeneral: 0,
+          netoPorMetodo: {
+            EFECTIVO: 0,
+            TARJETA: 0,
+            TRANSFERENCIA: 0,
+            BILLETERA: 0,
+            CHEQUE: 0,
+            CTA_CORRIENTE: 0,
+          },
+        },
+        facets: {
+          porTipo: { INGRESO: 0, EGRESO: 0 },
+          porMetodo: {
+            EFECTIVO: 0,
+            TARJETA: 0,
+            TRANSFERENCIA: 0,
+            BILLETERA: 0,
+            CHEQUE: 0,
+            CTA_CORRIENTE: 0,
+          },
+        },
+        items: [],
+      };
+    }
+
+    // 5) Traer items + detalles (en 2 queries para que sea escalable)
+    const movs = await this.ds.query(
+      `
+      SELECT
+        m.id,
+        m.apertura_id AS "aperturaId",
+        m.fecha,
+        m.monto_total AS "montoTotal",
+        m.tipo,
+        m.referencia,
+        m.usuario,
+        m.metodo_pago AS "metodoPago",
+        m.monto,
+        m.tarjeta_tipo AS "tarjetaTipo",
+        m.tarjeta_ultimos4 AS "tarjetaUltimos4",
+        m.codigo_autorizacion AS "codigoAutorizacion",
+        m.nombre_entidad AS "nombreEntidad"
+      FROM caja_movimiento m
+      WHERE m.id = ANY($1)
+      ORDER BY ${orderBy} ${orderDir}, m.id ${orderDir}
+      `,
+      [ids],
+    );
+
+    const dets = await this.ds.query(
+      `
+      SELECT
+        d.id,
+        d.movimiento_id AS "movimientoId",
+        d.metodo_pago AS "metodoPago",
+        d.monto,
+        d.tarjeta_tipo AS "tarjetaTipo",
+        d.tarjeta_ultimos4 AS "tarjetaUltimos4",
+        d.codigo_autorizacion AS "codigoAutorizacion",
+        d.nombre_entidad AS "nombreEntidad"
+      FROM caja_movimiento_detalle d
+      WHERE d.movimiento_id = ANY($1)
+      ORDER BY d.movimiento_id, d.id
+      `,
+      [ids],
+    );
+
+    const detByMov = new Map<string, any[]>();
+    for (const d of dets) {
+      const arr = detByMov.get(d.movimientoId) ?? [];
+      arr.push(d);
+      detByMov.set(d.movimientoId, arr);
+    }
+
+    const items = movs.map((m: any) => ({
+      ...m,
+      detalles: detByMov.get(m.id) ?? [],
+    }));
+
+    // 6) Resumen neto por método (con signo por tipo movimiento)
+    //    Nota: esto respeta filtros (incluyendo metodosPago, q, usuario, etc.)
+    const resumenRows = await this.ds.query(
+      `
+      SELECT
+        d.metodo_pago AS metodo,
+        COALESCE(SUM(
+          d.monto *
+          CASE WHEN m.tipo = 'INGRESO' THEN 1 ELSE -1 END
+        ),0)::numeric(12,2) AS total
+      FROM caja_movimiento m
+      JOIN caja_movimiento_detalle d ON d.movimiento_id = m.id
+      WHERE ${whereSql}
+      GROUP BY d.metodo_pago
+      `,
+      params,
+    );
+
+    const netoPorMetodo: Record<string, number> = {
+      EFECTIVO: 0,
+      TARJETA: 0,
+      TRANSFERENCIA: 0,
+      BILLETERA: 0,
+      CHEQUE: 0,
+      CTA_CORRIENTE: 0,
+    };
+
+    for (const r of resumenRows) {
+      const k = String(r.metodo);
+      if (k in netoPorMetodo) netoPorMetodo[k] = Number(r.total);
+    }
+
+    const netoGeneral = Object.values(netoPorMetodo).reduce(
+      (a, b) => Number(a) + Number(b),
+      0,
+    );
+
+    // 7) Facets (para UI: conteos rápidos)
+    const facetTipoRows = await this.ds.query(
+      `
+      SELECT m.tipo, COUNT(*)::int AS cnt
+      FROM caja_movimiento m
+      WHERE ${whereSql}
+      GROUP BY m.tipo
+      `,
+      params,
+    );
+
+    const porTipo = { INGRESO: 0, EGRESO: 0 };
+    for (const r of facetTipoRows) {
+      const k = String(r.tipo);
+      if (k === 'INGRESO' || k === 'EGRESO') porTipo[k] = Number(r.cnt);
+    }
+
+    const facetMetodoRows = await this.ds.query(
+      `
+      SELECT d.metodo_pago AS metodo, COUNT(DISTINCT m.id)::int AS cnt
+      FROM caja_movimiento m
+      JOIN caja_movimiento_detalle d ON d.movimiento_id = m.id
+      WHERE ${whereSql}
+      GROUP BY d.metodo_pago
+      `,
+      params,
+    );
+
+    const porMetodo: Record<string, number> = {
+      EFECTIVO: 0,
+      TARJETA: 0,
+      TRANSFERENCIA: 0,
+      BILLETERA: 0,
+      CHEQUE: 0,
+      CTA_CORRIENTE: 0,
+    };
+    for (const r of facetMetodoRows) {
+      const k = String(r.metodo);
+      if (k in porMetodo) porMetodo[k] = Number(r.cnt);
+    }
+
+    return {
+      aperturaId,
+      paginacion: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+      resumen: {
+        netoGeneral: Number(netoGeneral.toFixed(2)),
+        netoPorMetodo,
+      },
+      facets: {
+        porTipo,
+        porMetodo,
+      },
+      items,
     };
   }
 }
