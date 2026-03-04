@@ -35,12 +35,18 @@ export class MermasService {
     try {
       const fecha = dto.fecha ? new Date(dto.fecha) : new Date();
 
+      const almacenUnico = dto.lineas
+        .map((l) => l.almacen_id)
+        .filter((x) => x != null);
+      const uniq = Array.from(new Set(almacenUnico));
+      const almacenOrigenId = uniq.length === 1 ? uniq[0] : null;
+
       // Cabecera del movimiento
       const mov = await qr.manager.save(
         qr.manager.create(MovimientoStock, {
           tipo: MovimientoTipo.MERMA,
           fecha,
-          almacen_origen_id: null, // merma lógica: el origen se infiere por línea
+          almacen_origen_id: almacenOrigenId, // merma lógica: el origen se infiere por línea
           almacen_destino_id: null,
           referencia_tipo: 'MERMA',
           referencia_id: dto.referencia ?? null,
