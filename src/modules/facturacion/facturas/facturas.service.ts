@@ -338,8 +338,8 @@ export class FacturasService {
           },
         };
       }
-
-      await this.impactarContadoresPorFacturaAceptada(facturaRow.id);
+      if (!facId) throw new BadRequestException('facId vacío (inconsistente)');
+      await this.impactarContadoresPorFacturaAceptada(facId!);
 
       const syncVentas = await this.notificarVentasPedidoFacturado(facturaRow);
 
