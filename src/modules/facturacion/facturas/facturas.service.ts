@@ -13,6 +13,8 @@ import { FactuExternalClient } from '../http/factu-external.client';
 import { normalizeItem, resumir } from './utils/factura-calc.util';
 import { ConsultarCondicionIvaDto } from '../emisores/dto/consultar-condicion-iva.dto';
 import axios from 'axios';
+import { QueryContadoresProductosDto } from './dto/query-contadores-productos.dto';
+import { RestarFacturacionProductoDto } from './dto/restar-facturacion-producto.dto';
 
 function pctToAfipCode(pct: number): number {
   // tolerancia por decimales
@@ -337,12 +339,9 @@ export class FacturasService {
         };
       }
 
+      await this.impactarContadoresPorFacturaAceptada(facturaRow.id);
+
       const syncVentas = await this.notificarVentasPedidoFacturado(facturaRow);
-
-      
-
-
-      
 
       return {
         ok: true,
@@ -523,5 +522,198 @@ export class FacturasService {
       );
       return { ok: false, error: msg };
     }
+  }
+
+  // =========================================================
+  // IMPACTO AUTOMÁTICO: se llama SOLO cuando factura queda ACEPTADA
+  // Idempotente por (factura_id, producto_id) WHERE factura_id IS NOT NULL
+  // =========================================================
+  private async impactarContadoresPorFacturaAceptada(facturaId: string) {
+    // 1) Validación rápida: debe existir y estar ACEPTADA
+    const [fac] = await this.ds.query(
+      `SELECT id, estado FROM public.fac_facturas WHERE id=$1`,
+      [facturaId],
+    );
+    if (!fac) throw new BadRequestException('Factura inexistente');
+    if (fac.estado !== 'ACEPTADA') {
+      throw new BadRequestException(
+        `No se puede impactar contador: factura estado=${fac.estado}`,
+      );
+    }
+
+    // 2) Insert ledger + upsert total SOLO con lo insertado (idempotente)
+    await this.ds.query(
+      `
+      WITH ins AS (
+        INSERT INTO public.fac_producto_facturacion_mov
+          (factura_id, producto_id, cantidad, tipo, motivo)
+        SELECT
+          $1::uuid,
+          i.producto_id,
+          i.cantidad::numeric,
+          'FACTURA',
+          NULL
+        FROM public.fac_facturas_items i
+        WHERE i.factura_id = $1
+          AND i.producto_id IS NOT NULL
+        ON CONFLICT (factura_id, producto_id) DO NOTHING
+        RETURNING producto_id, cantidad
+      )
+      INSERT INTO public.fac_producto_facturacion_total
+        (producto_id, cantidad_facturada, updated_at)
+      SELECT
+        producto_id,
+        SUM(cantidad),
+        now()
+      FROM ins
+      GROUP BY producto_id
+      ON CONFLICT (producto_id) DO UPDATE
+      SET cantidad_facturada =
+            public.fac_producto_facturacion_total.cantidad_facturada
+            + EXCLUDED.cantidad_facturada,
+          updated_at = now()
+      `,
+      [facturaId],
+    );
+
+    return { ok: true };
+  }
+
+  // =========================================================
+  // RESTA MANUAL: ajuste operativo (NO permite negativo)
+  // - Inserta movimiento negativo (ledger)
+  // - Actualiza total con control de no-negativo
+  // =========================================================
+  async restarContadorProducto(dto: RestarFacturacionProductoDto) {
+    const productoId = Number(dto.producto_id);
+    const cant = Number(dto.cantidad);
+
+    if (!Number.isInteger(productoId) || productoId <= 0) {
+      throw new BadRequestException('producto_id inválido');
+    }
+    if (!Number.isFinite(cant) || cant <= 0) {
+      throw new BadRequestException('cantidad inválida');
+    }
+
+    // Validar producto existe (opcional pero recomendable)
+    const [p] = await this.ds.query(
+      `SELECT id FROM public.stk_productos WHERE id=$1`,
+      [productoId],
+    );
+    if (!p) throw new BadRequestException('Producto inexistente');
+
+    return this.ds.transaction(async (manager) => {
+      // Lock fila del total para evitar condiciones de carrera
+      const rows = await manager.query(
+        `
+        SELECT producto_id, cantidad_facturada
+        FROM public.fac_producto_facturacion_total
+        WHERE producto_id = $1
+        FOR UPDATE
+        `,
+        [productoId],
+      );
+
+      const actual = rows?.length ? Number(rows[0].cantidad_facturada) : 0;
+
+      if (actual - cant < 0) {
+        throw new BadRequestException(
+          `No se puede restar ${cant}. Total actual=${actual}. (No se permite negativo)`,
+        );
+      }
+
+      // 1) Ledger negativo
+      await manager.query(
+        `
+        INSERT INTO public.fac_producto_facturacion_mov
+          (factura_id, producto_id, cantidad, tipo, motivo)
+        VALUES
+          (NULL, $1::int, -$2::numeric, 'AJUSTE_RESTA', $3)
+        `,
+        [productoId, cant, dto.motivo ?? null],
+      );
+
+      // 2) Total update (si no existe fila, la creamos con 0 primero y luego restamos)
+      await manager.query(
+        `
+        INSERT INTO public.fac_producto_facturacion_total
+          (producto_id, cantidad_facturada, updated_at)
+        VALUES ($1::int, 0, now())
+        ON CONFLICT (producto_id) DO NOTHING
+        `,
+        [productoId],
+      );
+
+      await manager.query(
+        `
+        UPDATE public.fac_producto_facturacion_total
+        SET cantidad_facturada = cantidad_facturada - $2::numeric,
+            updated_at = now()
+        WHERE producto_id = $1::int
+        `,
+        [productoId, cant],
+      );
+
+      const [tot] = await manager.query(
+        `SELECT * FROM public.fac_producto_facturacion_total WHERE producto_id=$1`,
+        [productoId],
+      );
+
+      return { ok: true, total: tot };
+    });
+  }
+
+  // =========================================================
+  // LISTADO DE CONTADORES (rápido)
+  // =========================================================
+  async listarContadoresProductos(q: QueryContadoresProductosDto) {
+    const page = Math.max(1, Number(q.page ?? 1));
+    const limit = Math.min(Math.max(Number(q.limit ?? 50), 1), 500);
+    const offset = (page - 1) * limit;
+    const order = (q.order ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const conds: string[] = ['1=1'];
+    const params: any[] = [];
+    let p = 1;
+
+    if (q.search?.trim()) {
+      const s = `%${q.search.trim()}%`;
+      conds.push(
+        `(LOWER(prod.nombre) LIKE LOWER($${p}) OR LOWER(COALESCE(prod.codigo_comercial,'')) LIKE LOWER($${p}))`,
+      );
+      params.push(s);
+      p++;
+    }
+
+    const where = conds.join(' AND ');
+
+    const listSql = `
+      SELECT
+        t.producto_id,
+        t.cantidad_facturada,
+        t.updated_at,
+        prod.nombre,
+        prod.codigo_comercial,
+        prod.activo
+      FROM public.fac_producto_facturacion_total t
+      JOIN public.stk_productos prod ON prod.id = t.producto_id
+      WHERE ${where}
+      ORDER BY t.cantidad_facturada ${order}, t.producto_id ${order}
+      LIMIT $${p++} OFFSET $${p++}
+    `;
+
+    const countSql = `
+      SELECT COUNT(1)::int AS c
+      FROM public.fac_producto_facturacion_total t
+      JOIN public.stk_productos prod ON prod.id = t.producto_id
+      WHERE ${where}
+    `;
+
+    const [rows, total] = await Promise.all([
+      this.ds.query(listSql, [...params, limit, offset]),
+      this.ds.query(countSql, params).then((r) => Number(r?.[0]?.c ?? 0)),
+    ]);
+
+    return { data: rows, total, page, limit };
   }
 }

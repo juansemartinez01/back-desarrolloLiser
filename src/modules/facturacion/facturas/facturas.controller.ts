@@ -11,6 +11,8 @@ import { FacturasService } from './facturas.service';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 import { QueryFacturasDto } from './dto/query-facturas.dto';
 import { ConsultarCondicionIvaDto } from '../emisores/dto/consultar-condicion-iva.dto';
+import { RestarFacturacionProductoDto } from './dto/restar-facturacion-producto.dto';
+import { QueryContadoresProductosDto } from './dto/query-contadores-productos.dto';
 
 @Controller('facturacion/facturas')
 export class FacturasController {
@@ -24,6 +26,16 @@ export class FacturasController {
   @Get()
   listar(@Query() q: QueryFacturasDto) {
     return this.service.listar(q);
+  }
+
+  @Get('contadores-productos')
+  listarContadores(@Query() q: QueryContadoresProductosDto) {
+    return this.service.listarContadoresProductos(q);
+  }
+
+  @Post('contadores-productos/restar')
+  restar(@Body() dto: RestarFacturacionProductoDto) {
+    return this.service.restarContadorProducto(dto);
   }
 
   @Get(':id')
