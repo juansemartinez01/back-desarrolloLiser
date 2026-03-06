@@ -218,6 +218,7 @@ export class ReservasService {
       stock_disponible: Number(r.stock_disponible || 0),
     }));
   }
+  
 
   // =====================================================
   // =============== 8) LISTADO CON DETALLE ==============
