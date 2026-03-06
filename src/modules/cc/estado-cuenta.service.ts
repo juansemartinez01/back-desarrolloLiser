@@ -32,8 +32,6 @@ export class EstadoCuentaService {
       true,
     );
 
-    
-
     const search =
       typeof (q as any).q === 'string' && (q as any).q.trim()
         ? (q as any).q.trim()
@@ -384,6 +382,28 @@ export class EstadoCuentaService {
     `;
 
     // -------------------------------------------------------------------------
+    // Tope deuda del cliente (para info, no afecta saldo ni cálculos)
+    // -------------------------------------------------------------------------
+    const clienteRow = (
+      await this.ds.query(
+        `
+    SELECT
+      COALESCE(tope_deuda_cuenta1, 0)::numeric(18,4) AS tope_deuda_cuenta1,
+      COALESCE(tope_deuda_cuenta2, 0)::numeric(18,4) AS tope_deuda_cuenta2
+    FROM public.cc_clientes
+    WHERE id = $1
+    LIMIT 1
+    `,
+        [clienteId],
+      )
+    )?.[0];
+
+    const topesDeuda = {
+      tope_deuda_cuenta1: Number(clienteRow?.tope_deuda_cuenta1 || 0),
+      tope_deuda_cuenta2: Number(clienteRow?.tope_deuda_cuenta2 || 0),
+    };
+
+    // -------------------------------------------------------------------------
     // EJECUTAR (totales siempre; movs/count sólo si includeMovs)
     // -------------------------------------------------------------------------
     const totParams: any[] = [clienteId, isAmbas ? cuentas : cuentas[0]];
@@ -423,6 +443,7 @@ export class EstadoCuentaService {
         hasta: q.hasta ?? null,
         order,
       },
+      topes_deuda: topesDeuda,
       saldo_inicial: Number(saldoInicial.toFixed(4)),
       movimientos: rows.map((r: any) => ({
         cuenta: String(r.cuenta ?? '').toUpperCase(), // 👈 NUEVO (CUENTA1 / CUENTA2)
