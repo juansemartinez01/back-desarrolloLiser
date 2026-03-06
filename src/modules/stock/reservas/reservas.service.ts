@@ -168,40 +168,48 @@ export class ReservasService {
   /**
    * Devuelve TODOS los productos (aunque no tengan stock ni reservas)
    * con stock_real, stock_reservado y stock_disponible, filtrados por almacén.
+   *
+   * Si soloConStock = true, devuelve únicamente productos con stock_real > 0.
    */
-  async stockPorAlmacen(almacen_id: number) {
-    const rows = await this.ds.query(
-      `
-      SELECT
-        p.id                       AS producto_id,
-        p.nombre                   AS nombre,
-        COALESCE(sa.stock_real, 0) AS stock_real,
-        COALESCE(sr.stock_reservado, 0) AS stock_reservado,
-        COALESCE(sa.stock_real, 0) - COALESCE(sr.stock_reservado, 0) AS stock_disponible
-      FROM public.stk_productos p
-      LEFT JOIN (
-        SELECT
-          producto_id,
-          SUM(cantidad)::numeric AS stock_real
-        FROM public.stk_stock_actual
-        WHERE almacen_id = $1
-        GROUP BY producto_id
-      ) sa ON sa.producto_id = p.id
-      LEFT JOIN (
-        SELECT
-          producto_id,
-          SUM(cantidad_reservada)::numeric AS stock_reservado
-        FROM public.stk_stock_reservado
-        WHERE almacen_id = $1
-          AND estado = 'RESERVADO'
-        GROUP BY producto_id
-      ) sr ON sr.producto_id = p.id
-      ORDER BY p.nombre ASC
-      `,
-      [almacen_id],
-    );
+  async stockPorAlmacen(almacen_id: number, soloConStock = false) {
+    const params: any[] = [almacen_id];
+    const where: string[] = [];
 
-    // Normalizo tipos a number
+    if (soloConStock) {
+      where.push(`COALESCE(sa.stock_real, 0) > 0`);
+    }
+
+    const sql = `
+    SELECT
+      p.id AS producto_id,
+      p.nombre AS nombre,
+      COALESCE(sa.stock_real, 0) AS stock_real,
+      COALESCE(sr.stock_reservado, 0) AS stock_reservado,
+      COALESCE(sa.stock_real, 0) - COALESCE(sr.stock_reservado, 0) AS stock_disponible
+    FROM public.stk_productos p
+    LEFT JOIN (
+      SELECT
+        producto_id,
+        SUM(cantidad)::numeric AS stock_real
+      FROM public.stk_stock_actual
+      WHERE almacen_id = $1
+      GROUP BY producto_id
+    ) sa ON sa.producto_id = p.id
+    LEFT JOIN (
+      SELECT
+        producto_id,
+        SUM(cantidad_reservada)::numeric AS stock_reservado
+      FROM public.stk_stock_reservado
+      WHERE almacen_id = $1
+        AND estado = 'RESERVADO'
+      GROUP BY producto_id
+    ) sr ON sr.producto_id = p.id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY p.nombre ASC
+  `;
+
+    const rows = await this.ds.query(sql, params);
+
     return rows.map((r: any) => ({
       producto_id: Number(r.producto_id),
       nombre: r.nombre,

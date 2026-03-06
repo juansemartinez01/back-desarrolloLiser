@@ -4,6 +4,7 @@ import { ReservarStockDto } from './dto/reservar-stock.dto';
 import { CancelarReservaDto } from './dto/cancelar-reserva.dto';
 import { ConfirmarReservaDto } from './dto/confirmar-reserva.dto';
 import { QueryReservasDetalleDto } from './dto/query-reservas-detalle.dto';
+import { QueryStockPorAlmacenDto } from './dto/query-stock-por-almacen.dto';
 
 @Controller('reservas')
 export class ReservasController {
@@ -25,8 +26,8 @@ export class ReservasController {
   }
 
   @Get('stock-por-almacen')
-  stockPorAlmacen(@Query('almacen_id', ParseIntPipe) almacen_id: number) {
-    return this.service.stockPorAlmacen(almacen_id);
+  stockPorAlmacen(@Query() q: QueryStockPorAlmacenDto) {
+    return this.service.stockPorAlmacen(q.almacen_id, q.solo_con_stock);
   }
 
   @Get('pendientes/:pedido_id')
