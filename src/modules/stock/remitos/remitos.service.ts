@@ -1114,6 +1114,11 @@ export class RemitosService {
       qb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
     }
 
+    if (q.q_proveedor && q.q_proveedor.trim()) {
+      const sProv = `%${q.q_proveedor.trim()}%`;
+      qb.andWhere('LOWER(r.proveedor_nombre) LIKE LOWER(:sProv)', { sProv });
+    }
+
     // ✅ NUEVO: filtrar por producto_id (items)
     if (q.producto_id != null) {
       qb.andWhere('ri.producto_id = :pid', { pid: q.producto_id });
@@ -1167,6 +1172,14 @@ export class RemitosService {
     if (hasta) countQb.andWhere('r.fecha_remito < :hasta', { hasta });
     if (q.proveedor_id != null)
       countQb.andWhere('r.proveedor_id = :prov', { prov: q.proveedor_id });
+
+    if (q.q_proveedor && q.q_proveedor.trim()) {
+      const sProv = `%${q.q_proveedor.trim()}%`;
+      countQb.andWhere('LOWER(r.proveedor_nombre) LIKE LOWER(:sProv)', {
+        sProv,
+      });
+    }
+    
     if (q.producto_id != null)
       countQb.andWhere('ri.producto_id = :pid', { pid: q.producto_id });
 

@@ -32,6 +32,10 @@ export class QueryRemitosIngresoRapidoDto {
   solo_pendientes?: 'true' | 'false';
 
   @IsOptional()
+  @IsString()
+  q_proveedor?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
