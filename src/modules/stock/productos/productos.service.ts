@@ -199,6 +199,7 @@ export class ProductosService {
 
         // ✅ NUEVO: asegurás codigo_comercial siempre en ventas
         codigo_comercial: nuevoProducto.codigo_comercial,
+        facturable: nuevoProducto.facturable,
       };
 
       const sync = await this.syncVentasCrearProducto(payloadVentas);
@@ -385,6 +386,7 @@ export class ProductosService {
           precioVacio: Number(actualizado.precio_vacio ?? 0),
           empresa: actualizado.empresa ?? null,
           id_interno: actualizado.id_interno ?? '',
+          facturable: actualizado.facturable,
         };
 
         if (!actualizado.codigo_comercial) {
